@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=File Manager
+Comment=Browse the file system
+GenericName=File Manager
+Exec=caja
+Icon=/usr/share/pixmaps/file-manager.svg
+Type=Application
+StartupNotify=false
+Categories=System;FileManager;

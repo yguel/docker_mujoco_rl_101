@@ -1,0 +1,37 @@
+services:
+  mujoco-jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.novnc
+    image: yguel/mujoco-desktop:v1.0
+    container_name: mujoco-jupyter
+    ports:
+      - "6080:6080"     # noVNC dans le navigateur
+      - "8888:8888"     # Jupyter Notebook
+    environment:
+      - DISPLAY=:0
+      - MUJOCO_GL=osmesa
+    volumes:
+      - ./workspace:/home/student/workspace
+      - ./workspace/notebooks:/home/student/workspace/notebooks
+      - ./workspace/models:/home/student/workspace/models
+      - ./workspace/examples:/home/student/workspace/examples
+    command: >
+      bash -c "
+        # Start the normal entrypoint in background
+        /entrypoint.sh &
+        
+        # Wait for desktop to be ready
+        sleep 15
+        
+        # Start Jupyter Notebook
+        cd /home/student/workspace/notebooks &&
+        export MUJOCO_GL=osmesa &&
+        jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser --allow-root \
+          --NotebookApp.token='' --NotebookApp.password='' \
+          --NotebookApp.allow_origin='*' \
+          --NotebookApp.disable_check_xsrf=True &
+        
+        # Keep container running
+        wait
+      "

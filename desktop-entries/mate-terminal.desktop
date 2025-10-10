@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=MATE Terminal
+Comment=Use the command line
+GenericName=Terminal
+Exec=mate-terminal
+Icon=/usr/share/pixmaps/terminal.svg
+Type=Application
+StartupNotify=false
+Categories=System;TerminalEmulator;

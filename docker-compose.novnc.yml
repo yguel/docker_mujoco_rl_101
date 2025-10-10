@@ -1,0 +1,18 @@
+services:
+  mujoco-novnc:
+    build:
+      context: .
+      dockerfile: Dockerfile.novnc
+    image: yguel/mujoco-desktop:v1.0
+    container_name: mujoco-novnc
+    ports:
+      - "6080:6080"     # noVNC dans le navigateur
+      - "8888:8888"     # Jupyter Notebook
+    environment:
+      - DISPLAY=:0
+      - MUJOCO_GL=osmesa
+    volumes:
+      - ./workspace:/home/student/workspace
+      - ./workspace/notebooks:/home/student/workspace/notebooks
+      - ./workspace/models:/home/student/workspace/models
+      - ./workspace/examples:/home/student/workspace/examples

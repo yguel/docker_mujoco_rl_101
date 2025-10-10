@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Chromium Web Browser
+Comment=Access the Internet
+GenericName=Web Browser
+Exec=chromium --no-sandbox --disable-gpu
+Icon=/usr/share/pixmaps/chromium.svg
+Type=Application
+StartupNotify=false
+Categories=Network;WebBrowser;
+MimeType=text/html;text/xml;application/xhtml+xml;

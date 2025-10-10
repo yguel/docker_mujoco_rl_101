@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MuJoCo Desktop Environment</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 15px;
+            padding: 50px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            max-width: 600px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 1.2em;
+        }
+        .logo {
+            font-size: 4em;
+            margin-bottom: 20px;
+            animation: bounce 2s infinite;
+        }
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+            40% { transform: translateY(-10px); }
+            60% { transform: translateY(-5px); }
+        }
+        .description {
+            color: #666;
+            margin-bottom: 30px;
+            line-height: 1.8;
+            font-size: 1.1em;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .feature {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        .feature-icon {
+            font-size: 1.5em;
+            margin-bottom: 8px;
+        }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            text-decoration: none;
+            padding: 18px 35px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            margin: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
+        }
+        .auto-redirect {
+            margin-top: 30px;
+            color: #999;
+            font-size: 14px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .countdown {
+            font-weight: bold;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+    </style>
+    <script>
+        let countdown = 10;
+        
+        function updateCountdown() {
+            document.getElementById('countdown').textContent = countdown;
+            countdown--;
+            
+            if (countdown < 0) {
+                window.location.href = '/vnc.html?autoconnect=true&resize=scale&reconnect=true';
+            }
+        }
+        
+        // Démarrer le compte à rebours quand la page est chargée
+        window.onload = function() {
+            setInterval(updateCountdown, 1000);
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🤖</div>
+        <h1>MuJoCo Desktop</h1>
+        <div class="subtitle">Environnement de développement complet</div>
+        
+        <div class="description">
+            Votre environnement Ubuntu Desktop avec MuJoCo est prêt !<br>
+            Accédez au bureau virtuel complet avec Chromium, terminal, et tous les outils nécessaires.
+        </div>
+        
+        <div class="features">
+            <div class="feature">
+                <div class="feature-icon">🖥️</div>
+                <strong>Ubuntu Desktop</strong>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">🌐</div>
+                <strong>Chromium Browser</strong>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">�</div>
+                <strong>VS Code IDE</strong>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">�🐍</div>
+                <strong>Python + MuJoCo</strong>
+            </div>
+            <div class="feature">
+                <div class="feature-icon">📔</div>
+                <strong>Jupyter Notebook</strong>
+            </div>
+        </div>
+        
+        <a href="/vnc.html?autoconnect=true&resize=scale&reconnect=true" class="btn">
+            � Accéder au Bureau Virtual
+        </a>
+        
+        <div class="auto-redirect">
+            <strong>Redirection automatique dans <span id="countdown" class="countdown">10</span> secondes...</strong><br>
+            <small>Le bureau mettra quelques instants à se charger complètement</small>
+        </div>
+    </div>
+</body>
+</html>

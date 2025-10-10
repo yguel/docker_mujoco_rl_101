@@ -1,0 +1,158 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV USER=student
+ENV HOME=/home/${USER}
+ENV SHELL=/bin/bash
+
+# --- Ubuntu Desktop + VNC + noVNC ----- Ubuntu Desktop + VNC + noVNC ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # MATE Desktop environment (like tiryoh/ros2-desktop-vnc)
+    ubuntu-mate-desktop \
+    # VNC server
+    tigervnc-standalone-server tigervnc-common \
+    # noVNC
+    novnc websockify \
+    # Web browser
+    chromium \
+    # System tools
+    curl ca-certificates git sudo \
+    # GPG for package signing
+    gnupg \
+    # Python development
+    python3 python3-pip python3-dev python3-venv \
+    build-essential \
+    # OpenGL support for headless rendering
+    libgl1 libgl1-mesa-dri mesa-utils \
+    libegl1 libglx0 libglfw3 libglew2.2 \
+    libxext6 libxrender1 libxi6 libxrandr2 libxcursor1 libxinerama1 \
+    # OSMesa for headless OpenGL (required for MuJoCo)
+    libosmesa6 libosmesa6-dev \
+    # Additional OpenGL libraries
+    libglu1-mesa libglu1-mesa-dev \
+    # Enhanced OpenGL support with hardware acceleration fallback
+    mesa-va-drivers mesa-vdpau-drivers mesa-vulkan-drivers \
+    libdrm2 libxss1 \
+    # Enhanced Mesa support for VNC/desktop environments
+    mesa-utils-extra \
+    # OpenGL development tools
+    mesa-common-dev freeglut3-dev \
+    # GPU detection tools
+    pciutils lshw \
+    # Video/audio
+    ffmpeg \
+    # Terminal
+    mate-terminal \
+    # VNC tools
+    x11vnc xvfb \
+    # Prevent dbus issues
+    dbus-x11 \
+    # Additional tools
+    supervisor tini \
+    # GUI tools for launcher
+    zenity \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install VS Code
+RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg && \
+    echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list && \
+    apt-get update && \
+    apt-get install -y code && \
+    rm -rf /var/lib/apt/lists/*
+
+# --- Python libs ---
+RUN pip3 install --no-cache-dir --break-system-packages \
+      numpy==1.26.4 \
+      matplotlib==3.8.4 \
+      ipywidgets==8.1.3 \
+      mujoco==3.3.6 \
+      mujoco-python-viewer==0.1.4 \
+      imageio[ffmpeg]==2.34.2 \
+      jupyter==1.0.0 \
+      notebook==7.0.6 \
+      PyOpenGL==3.1.7
+
+# Create user (remove ubuntu user if it exists to avoid UID conflicts)
+RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || true; fi && \
+    useradd -m -s /bin/bash ${USER} && \
+    echo "${USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
+    usermod -aG sudo ${USER}
+
+# Set up VS Code user directory and install extensions
+RUN mkdir -p /home/${USER}/.vscode && \
+    chown -R ${USER}:${USER} /home/${USER}/.vscode
+
+# noVNC setup
+RUN mkdir -p /opt/novnc/utils/websockify && \
+    ln -s /usr/share/novnc /opt/novnc
+
+# Custom index.html for auto-redirect
+COPY index.html /usr/share/novnc/index.html
+
+# VNC setup
+RUN mkdir -p /home/${USER}/.vnc && \
+    chown -R ${USER}:${USER} /home/${USER}
+
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+COPY setup-opengl.sh /setup-opengl.sh
+COPY mujoco-desktop-launcher.sh /usr/local/bin/mujoco-launcher
+RUN chmod +x /entrypoint.sh /setup-opengl.sh /usr/local/bin/mujoco-launcher
+
+# Set up desktop environment
+RUN mkdir -p /home/${USER}/.config && \
+    chown -R ${USER}:${USER} /home/${USER}/.config
+
+# Create desktop and applications directories  
+RUN mkdir -p /home/${USER}/Desktop && \
+    mkdir -p /home/${USER}/.local/share/applications && \
+    chown -R ${USER}:${USER} /home/${USER}/Desktop && \
+    chown -R ${USER}:${USER} /home/${USER}/.local/share/applications
+
+# Copy desktop entries
+# Copy desktop entries and configure applications
+COPY desktop-entries/ /usr/share/applications/
+RUN chmod 644 /usr/share/applications/*.desktop
+
+# Copy custom icons
+COPY icons/ /usr/share/pixmaps/
+
+# Copy quick launcher script
+COPY quick-launcher.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/quick-launcher.sh
+
+# Also copy desktop entries to user locations for desktop access
+RUN cp /usr/share/applications/vscode.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/chromium.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/mate-terminal.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/caja.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/mujoco-examples.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/quick-launcher.desktop /home/${USER}/Desktop/ && \
+    chmod +x /home/${USER}/Desktop/*.desktop && \
+    chown -R ${USER}:${USER} /home/${USER}/Desktop
+
+WORKDIR ${HOME}
+
+# Expose ports
+EXPOSE 6080 5901
+
+# Environment variables
+ENV DISPLAY=:1 \
+    VNC_RESOLUTION=1920x1080 \
+    VNC_DEPTH=24 \
+    VNC_DPI=96 \
+    NOVNC_PORT=6080 \
+    VNC_PORT=5901 \
+    MUJOCO_GL=osmesa \
+    PYOPENGL_PLATFORM=osmesa \
+    LIBGL_ALWAYS_SOFTWARE=1
+
+# Volumes
+VOLUME ["/home/student/workspace"]
+
+# Switch to user for final setup
+USER ${USER}
+
+# Entrypoint
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["bash"]

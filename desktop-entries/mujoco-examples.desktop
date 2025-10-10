@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=MuJoCo Examples
+Comment=Open MuJoCo examples in VS Code
+GenericName=MuJoCo Examples
+Exec=code --no-sandbox --disable-gpu --user-data-dir=/home/student/.vscode /home/student/workspace/examples
+Icon=/usr/share/pixmaps/mujoco.svg
+Type=Application
+StartupNotify=false
+Categories=Development;Education;
