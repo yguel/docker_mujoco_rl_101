@@ -123,13 +123,13 @@ update-desktop-database /usr/share/applications/ 2>/dev/null || true
 update-desktop-database /home/student/.local/share/applications/ 2>/dev/null || true
 mkdir -p /home/student/.local/share/applications/
 ln -sf /usr/share/applications/vscode.desktop /home/student/.local/share/applications/ 2>/dev/null || true
-ln -sf /usr/share/applications/chromium.desktop /home/student/.local/share/applications/ 2>/dev/null || true
+ln -sf /usr/share/applications/google-chrome.desktop /home/student/.local/share/applications/ 2>/dev/null || true
 
 # Start desktop apps
 mate-panel --reset &
 caja &
 mate-terminal &
-chromium --no-sandbox --disable-gpu --disable-software-rasterizer https://mujoco.readthedocs.io/ &
+google-chrome --no-sandbox --disable-gpu https://mujoco.readthedocs.io/ &
 
 # Keep the session alive
 while true; do

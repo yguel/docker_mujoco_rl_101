@@ -13,8 +13,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     tigervnc-standalone-server tigervnc-common \
     # noVNC
     novnc websockify \
-    # Web browser
-    chromium \
     # System tools
     curl ca-certificates git sudo \
     # GPG for package signing
@@ -58,6 +56,13 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/trusted.gpg.d/microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list && \
     apt-get update && \
     apt-get install -y code && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Chromium from non-snap source (avoid snap issues in Docker)
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google.gpg && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
+    apt-get update && \
+    apt-get install -y google-chrome-stable && \
     rm -rf /var/lib/apt/lists/*
 
 # --- Python libs ---
@@ -127,7 +132,7 @@ RUN chmod +x /usr/local/bin/quick-launcher.sh
 
 # Also copy desktop entries to user locations for desktop access
 RUN cp /usr/share/applications/vscode.desktop /home/${USER}/Desktop/ && \
-    cp /usr/share/applications/chromium.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/google-chrome.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/mate-terminal.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/caja.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/mujoco-examples.desktop /home/${USER}/Desktop/ && \

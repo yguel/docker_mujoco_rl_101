@@ -11,7 +11,7 @@ show_menu() {
         --width=500 \
         --height=300 \
         "Visual Studio Code" "Code editor with MuJoCo examples" \
-        "Chromium Browser" "Web browser for documentation" \
+        "Google Chrome" "Web browser for documentation" \
         "Terminal" "Command line interface" \
         "File Manager" "Browse workspace files" \
         "MuJoCo Examples" "Open examples in VS Code" \
@@ -21,8 +21,8 @@ show_menu() {
         "Visual Studio Code")
             code --no-sandbox --disable-gpu --user-data-dir=/home/student/.vscode /home/student/workspace &
             ;;
-        "Chromium Browser")
-            chromium --no-sandbox --disable-gpu &
+        "Google Chrome")
+            google-chrome --no-sandbox --disable-gpu &
             ;;
         "Terminal")
             mate-terminal &

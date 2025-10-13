@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=Chromium Web Browser
+Name=Google Chrome
 Comment=Access the Internet
 GenericName=Web Browser
-Exec=chromium --no-sandbox --disable-gpu
-Icon=/usr/share/pixmaps/chromium.svg
+Exec=google-chrome --no-sandbox --disable-gpu
+Icon=google-chrome
 Type=Application
 StartupNotify=false
 Categories=Network;WebBrowser;
