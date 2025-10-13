@@ -17,8 +17,10 @@ xml = """
   </actuator>
 </mujoco>
 """
-Path("/workspace/examples/pendulum.xml").write_text(xml)
-m = mujoco.MjModel.from_xml_path("/workspace/examples/pendulum.xml")
+script_dir = Path(__file__).parent
+xml_path = script_dir / "pendulum.xml"
+xml_path.write_text(xml)
+m = mujoco.MjModel.from_xml_path(str(xml_path))
 d = mujoco.MjData(m)
 
 with viewer.launch_passive(m, d) as v:

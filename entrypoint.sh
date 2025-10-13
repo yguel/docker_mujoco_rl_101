@@ -253,6 +253,10 @@ echo "  Desktop: http://localhost:${NOVNC_PORT}"
 echo "  Jupyter: http://localhost:8888"
 echo "  VNC Client: localhost:${VNC_PORT}"
 echo "  Security: No password (safe for local development)"
+echo ""
+echo "Workspace folder:"
+echo "  Local:     \$HOME/rl/mujoco/workspace"
+echo "  Container: /home/student/workspace"
 echo "================================"
 
 # If arguments provided, execute them

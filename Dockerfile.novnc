@@ -70,7 +70,11 @@ RUN pip3 install --no-cache-dir --break-system-packages \
       imageio[ffmpeg]==2.34.2 \
       jupyter==1.0.0 \
       notebook==7.0.6 \
-      PyOpenGL==3.1.7
+      PyOpenGL==3.1.7 \
+      pandas==2.2.2 \
+      torch==2.3.1 \
+      torchvision==0.18.1 \
+      torchaudio==2.3.1
 
 # Create user (remove ubuntu user if it exists to avoid UID conflicts)
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || true; fi && \

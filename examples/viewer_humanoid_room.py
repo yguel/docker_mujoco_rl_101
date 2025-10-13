@@ -40,8 +40,10 @@ xml = """
 </mujoco>
 """
 
-Path("/workspace/examples/humanoid_room.xml").write_text(xml)
-m = mujoco.MjModel.from_xml_path("/workspace/examples/humanoid_room.xml")
+script_dir = Path(__file__).parent
+xml_path = script_dir / "humanoid_room.xml"
+xml_path.write_text(xml)
+m = mujoco.MjModel.from_xml_path(str(xml_path))
 d = mujoco.MjData(m)
 torso_id = m.body("torso").id
 

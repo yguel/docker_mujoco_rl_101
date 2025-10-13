@@ -18,8 +18,10 @@ xml = """
   </worldbody>
 </mujoco>
 """
-Path("/workspace/examples/collisions_demo.xml").write_text(xml)
-m = mujoco.MjModel.from_xml_path("/workspace/examples/collisions_demo.xml")
+script_dir = Path(__file__).parent
+xml_path = script_dir / "collisions_demo.xml"
+xml_path.write_text(xml)
+m = mujoco.MjModel.from_xml_path(str(xml_path))
 d = mujoco.MjData(m)
 
 with viewer.launch_passive(m, d) as v:

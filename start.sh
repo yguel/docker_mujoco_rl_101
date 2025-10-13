@@ -5,6 +5,35 @@
 
 set -e
 
+# Parse command line arguments
+USE_LOCAL_ONLY=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --local)
+            USE_LOCAL_ONLY=true
+            shift
+            ;;
+        -h|--help)
+            echo "Usage: $0 [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --local    Use local Docker image only, skip remote version check"
+            echo "  -h, --help Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0           # Normal mode (check remote for updates)"
+            echo "  $0 --local  # Local mode (use local image only)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # Configuration
 IMAGE_NAME="yguel/mujoco-desktop:v1.0"
 CONTAINER_NAME="mujoco-student"
@@ -13,6 +42,11 @@ echo "🎓 Starting MuJoCo Student Environment"
 echo "====================================="
 echo "Image: $IMAGE_NAME"
 echo "Container: $CONTAINER_NAME"
+if [ "$USE_LOCAL_ONLY" = true ]; then
+    echo "Mode: LOCAL ONLY (skipping remote checks)"
+else
+    echo "Mode: SMART UPDATE (checking remote)"
+fi
 echo ""
 
 # Function to detect GPU support
@@ -98,22 +132,57 @@ if docker ps -a | grep -q "$CONTAINER_NAME"; then
     docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
 fi
 
-# Check for image availability (prioritize local images)
+# Check for image availability and version comparison
 echo "📥 Checking image availability..."
 if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^$IMAGE_NAME$"; then
-    echo "✅ Using local image: $IMAGE_NAME"
-    echo "   (Built locally - will NOT pull from Docker Hub)"
-else
-    echo "📦 Local image not found, pulling from Docker Hub..."
-    if docker pull "$IMAGE_NAME"; then
-        echo "✅ Successfully pulled from Docker Hub"
+    echo "✅ Local image found: $IMAGE_NAME"
+    
+    if [ "$USE_LOCAL_ONLY" = true ]; then
+        echo "🏠 LOCAL MODE: Using local image without remote checks"
+        echo "   (Remote version checking skipped)"
     else
-        echo "❌ Failed to pull image from Docker Hub"
-        echo "   Please check:"
-        echo "   1. Internet connection"
-        echo "   2. Image name: $IMAGE_NAME"
-        echo "   3. Docker Hub accessibility"
+        # Get local image digest/ID
+        LOCAL_DIGEST=$(docker images --no-trunc --quiet "$IMAGE_NAME" 2>/dev/null)
+        
+        # Try to get remote image digest (without pulling)
+        echo "🔍 Comparing with remote image..."
+        if REMOTE_DIGEST=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | grep -o '"digest":"[^"]*"' | head -1 | cut -d'"' -f4); then
+            # Get the actual local manifest digest
+            LOCAL_MANIFEST_DIGEST=$(docker image inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | cut -d'@' -f2)
+            
+            if [ "$LOCAL_MANIFEST_DIGEST" = "$REMOTE_DIGEST" ]; then
+                echo "✅ Local image is up-to-date with remote"
+                echo "   (Will NOT pull from Docker Hub)"
+            else
+                echo "📦 Local image differs from remote, pulling latest version..."
+                if docker pull "$IMAGE_NAME"; then
+                    echo "✅ Successfully updated image from Docker Hub"
+                else
+                    echo "⚠️  Failed to pull updated image, using local version"
+                fi
+            fi
+        else
+            echo "⚠️  Could not check remote image (offline or registry unavailable)"
+            echo "   Using local image: $IMAGE_NAME"
+        fi
+    fi
+else
+    if [ "$USE_LOCAL_ONLY" = true ]; then
+        echo "❌ LOCAL MODE: No local image found and --local flag prevents pulling"
+        echo "   Please build the image locally first or run without --local flag"
         exit 1
+    else
+        echo "📦 Local image not found, pulling from Docker Hub..."
+        if docker pull "$IMAGE_NAME"; then
+            echo "✅ Successfully pulled from Docker Hub"
+        else
+            echo "❌ Failed to pull image from Docker Hub"
+            echo "   Please check:"
+            echo "   1. Internet connection"
+            echo "   2. Image name: $IMAGE_NAME"
+            echo "   3. Docker Hub accessibility"
+            exit 1
+        fi
     fi
 fi
 
@@ -136,6 +205,9 @@ echo "   📊 Container logs will appear below"
 echo "   🌐 Access will be available at:"
 echo "      Desktop: http://localhost:6080"
 echo "      Jupyter: http://localhost:8888"
+echo "   📁 Workspace folder:"
+echo "      Local:     $HOME/rl/mujoco/workspace"
+echo "      Container: /home/student/workspace"
 echo ""
 echo "⏳ Starting services (this may take 30 seconds)..."
 echo "=============================================="
