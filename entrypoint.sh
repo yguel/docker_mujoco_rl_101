@@ -20,20 +20,39 @@ if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
         groupmod -g $HOST_GID student 2>/dev/null || true
         usermod -u $HOST_UID -g $HOST_GID student 2>/dev/null || true
         
+        # Fix ownership of student's home directory after UID change
+        chown -R $HOST_UID:$HOST_GID /home/student 2>/dev/null || true
+        
+        # Set empty password for student user to allow su without password
+        passwd -d student 2>/dev/null || true
+        
         echo "   ✅ Student user permissions updated"
         echo "   📁 Workspace files will now have correct permissions"
     else
         echo "   ✅ Student user already has correct UID:GID"
     fi
+    
+    # Set empty password for student user (in case it wasn't set above)
+    passwd -d student 2>/dev/null || true
+    
+    # Always switch to student user for running services (only if we're not already student)
+    if [ "$(whoami)" = "root" ]; then
+        echo "🔄 Switching to student user for service execution..."
+        exec runuser -l student -c "cd '$PWD' && HOST_UID=$HOST_UID HOST_GID=$HOST_GID VNC_RESOLUTION=$VNC_RESOLUTION VNC_DEPTH=$VNC_DEPTH VNC_DPI=$VNC_DPI NOVNC_PORT=$NOVNC_PORT VNC_PORT=$VNC_PORT bash '$0'"
+    else
+        echo "🔄 Already running as student user, continuing with service startup..."
+    fi
 else
     echo "⚠️  No HOST_UID/HOST_GID provided, using default student user permissions"
 fi
+
+# If we reach here, we're running as student user
 
 # Set proper HOME environment  
 export HOME=/home/student
 export USER=student
 
-echo "🎓 Starting MuJoCo Desktop Environment as student user (UID: $(id -u student))"
+echo "🎓 Starting MuJoCo Desktop Environment as student user (UID: ${HOST_UID:-$(id -u)})"
 
 # Configure OpenGL for MuJoCo (hardware acceleration with software fallback)
 echo "🎮 Configuring OpenGL for optimal MuJoCo performance..."
@@ -41,16 +60,30 @@ source /setup-opengl.sh
 configure_opengl
 
 # Initialize dbus (fix dbus issues like in your reference)
-export $(dbus-launch)
+# Clean up any existing dbus session
+sudo rm -rf /tmp/dbus-* /var/run/dbus/pid 2>/dev/null || true
+sudo service dbus restart 2>/dev/null || true
+
+# Wait a bit for D-Bus to fully restart after user changes
+sleep 2
+
+# Skip D-Bus initialization here - it will be handled in VNC startup script
+# Initialize D-Bus session as the (potentially updated) student user
+# sudo -u student bash -c 'export $(dbus-launch)' 2>/dev/null || export $(dbus-launch)
 
 # Remove any existing X11 lock files
 rm -f /tmp/.X*-lock /tmp/.X11-unix/X*
 
-# Set up VNC (no password for easier container access)
-mkdir -p "$HOME/.vnc"
+# VNC setup will be handled in start_vnc function after user permissions are set
 
-# Create VNC config
-cat > "$HOME/.vnc/xstartup" << 'EOF'
+# Function to start VNC server
+start_vnc() {
+    echo "Starting VNC server on display :1..."
+    
+    # Create VNC directory and script
+    mkdir -p "$HOME/.vnc"
+    
+    cat > "$HOME/.vnc/xstartup" << 'EOF'
 #!/bin/bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
@@ -61,7 +94,7 @@ eval $(dbus-launch --sh-syntax)
 # Configure OpenGL for desktop environment
 export DISPLAY=:1
 export MUJOCO_GL=glfw
-export LIBGL_ALWAYS_SOFTWARE=1
+export LIBGL_ALWAYS_SOFTWARE=0
 export MESA_GL_VERSION_OVERRIDE=3.3
 export MESA_GLSL_VERSION_OVERRIDE=330
 export __GLX_VENDOR_LIBRARY_NAME=mesa
@@ -70,7 +103,7 @@ export __GLX_VENDOR_LIBRARY_NAME=mesa
 export MATE_PANEL_DISABLE_BRISK=1
 export MATE_DESKTOP_SESSION_ID=this-is-deprecated
 
-# Start MATE desktop environment (like tiryoh/ros2-desktop-vnc)
+# Start MATE desktop environment
 mate-session &
 
 # Wait for desktop to load
@@ -85,59 +118,18 @@ gsettings set org.mate.power-manager sleep-computer-ac 0 2>/dev/null || true
 gsettings set org.mate.power-manager sleep-computer-battery 0 2>/dev/null || true
 gsettings set org.mate.session idle-delay 0 2>/dev/null || true
 
-# Update desktop database to recognize new applications
+# Start applications and desktop setup
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
 update-desktop-database /home/student/.local/share/applications/ 2>/dev/null || true
-
-# Create symlinks to user applications directory for menu visibility
 mkdir -p /home/student/.local/share/applications/
 ln -sf /usr/share/applications/vscode.desktop /home/student/.local/share/applications/ 2>/dev/null || true
 ln -sf /usr/share/applications/chromium.desktop /home/student/.local/share/applications/ 2>/dev/null || true
-ln -sf /usr/share/applications/mujoco-examples.desktop /home/student/.local/share/applications/ 2>/dev/null || true
-ln -sf /usr/share/applications/quick-launcher.desktop /home/student/.local/share/applications/ 2>/dev/null || true
 
-# Reset panel configuration to avoid Brisk Menu issues
+# Start desktop apps
 mate-panel --reset &
-
-# Refresh menu cache
-killall mate-menu 2>/dev/null || true
-
-# Start file manager
 caja &
-
-# Start terminal
 mate-terminal &
-
-# Start Chromium with MuJoCo documentation
-chromium --no-sandbox --disable-gpu --disable-software-rasterizer \
-  "https://mujoco.readthedocs.io/" \
-  "https://github.com/google-deepmind/mujoco" &
-
-# Wait a bit for desktop to be ready
-sleep 3
-
-# Install VS Code extensions for Python development
-echo "Installing VS Code extensions..."
-code --no-sandbox --disable-gpu --user-data-dir=/home/student/.vscode \
-  --install-extension ms-python.python \
-  --install-extension ms-python.pylint \
-  --install-extension ms-toolsai.jupyter \
-  --install-extension ms-vscode.cmake-tools 2>/dev/null || true
-
-# Start VS Code with workspace and open example
-sleep 2
-
-# Additional screensaver disable commands for extra safety
-xset s off 2>/dev/null || true
-xset s noblank 2>/dev/null || true
-xset -dpms 2>/dev/null || true
-
-# Set blank password for student user as fallback for unlock screen
-echo "student:" | sudo chpasswd 2>/dev/null || true
-
-code --no-sandbox --disable-gpu --user-data-dir=/home/student/.vscode \
-  /home/student/workspace \
-  /home/student/workspace/examples/mujoco_example.py &
+chromium --no-sandbox --disable-gpu --disable-software-rasterizer https://mujoco.readthedocs.io/ &
 
 # Keep the session alive
 while true; do
@@ -145,11 +137,9 @@ while true; do
 done
 EOF
 
-chmod +x "$HOME/.vnc/xstartup"
-
-# Function to start VNC server
-start_vnc() {
-    echo "Starting VNC server on display :1..."
+    chmod +x "$HOME/.vnc/xstartup"
+    
+    # Start VNC server
     vncserver :1 -geometry ${VNC_RESOLUTION} -depth ${VNC_DEPTH} -dpi ${VNC_DPI} \
         -localhost no -SecurityTypes None --I-KNOW-THIS-IS-INSECURE
 }
@@ -167,27 +157,24 @@ start_jupyter() {
     echo "Starting Jupyter notebook server on port 8888..."
     
     # Use /tmp for Jupyter directories to avoid permission issues
-    sudo -u student bash -c "
-        mkdir -p /tmp/jupyter/runtime
-        mkdir -p /tmp/jupyter/config
-        mkdir -p /home/student/workspace
-    "
+    mkdir -p /tmp/jupyter/runtime
+    mkdir -p /tmp/jupyter/config
+    mkdir -p "$HOME/workspace"
     
-    # Start Jupyter as student user with temp directories for Jupyter config
-    sudo -u student -H bash -c "
-        export HOME=/home/student
-        export JUPYTER_CONFIG_DIR=/tmp/jupyter/config
-        export JUPYTER_DATA_DIR=/tmp/jupyter
-        export JUPYTER_RUNTIME_DIR=/tmp/jupyter/runtime
-        cd /home/student/workspace
-        jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser \
-            --ServerApp.token='' --ServerApp.password='' \
-            --ServerApp.allow_origin='*' \
-            --ServerApp.base_url='/' \
-            --notebook-dir=/home/student/workspace \
-            > /home/student/jupyter.log 2>&1 &
-        echo \$! > /home/student/jupyter.pid
-    "
+    # Set Jupyter environment variables
+    export JUPYTER_CONFIG_DIR=/tmp/jupyter/config
+    export JUPYTER_DATA_DIR=/tmp/jupyter
+    export JUPYTER_RUNTIME_DIR=/tmp/jupyter/runtime
+    cd "$HOME/workspace"
+    
+    # Start Jupyter notebook
+    jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser \
+        --ServerApp.token='' --ServerApp.password='' \
+        --ServerApp.allow_origin='*' \
+        --ServerApp.base_url='/' \
+        --notebook-dir="$HOME/workspace" \
+        > "$HOME/jupyter.log" 2>&1 &
+    echo $! > "$HOME/jupyter.pid"
     
     # Get the PID from the file
     sleep 3

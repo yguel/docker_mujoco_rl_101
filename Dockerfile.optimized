@@ -147,8 +147,8 @@ ENV DISPLAY=:1 \
 # Volumes
 VOLUME ["/home/student/workspace"]
 
-# Switch to user for final setup
-USER ${USER}
+# Container starts as root to allow UID/GID changes in entrypoint
+# USER switching will be handled by entrypoint.sh
 
 # Entrypoint
 ENTRYPOINT ["/entrypoint.sh"]

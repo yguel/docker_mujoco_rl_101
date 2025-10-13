@@ -40,7 +40,7 @@ build_docker_command() {
     # Basic ports and volumes
     cmd="$cmd -p 6080:6080"        # noVNC desktop
     cmd="$cmd -p 8888:8888"        # Jupyter notebook
-    cmd="$cmd -v $(pwd)/workspace:/home/student/workspace"
+    cmd="$cmd -v $HOME/rl/mujoco/workspace:/home/student/workspace"
     
     # Pass host user UID and GID for proper file permissions
     cmd="$cmd -e HOST_UID=$(id -u)"
@@ -90,7 +90,7 @@ trap cleanup SIGINT SIGTERM
 
 # Create workspace structure
 echo "📁 Setting up workspace..."
-mkdir -p workspace/{notebooks,examples,models}
+mkdir -p $HOME/rl/mujoco/workspace/{notebooks,examples,models}
 
 # Stop any existing container
 if docker ps -a | grep -q "$CONTAINER_NAME"; then
