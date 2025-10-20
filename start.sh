@@ -7,6 +7,8 @@ set -e
 
 # Parse command line arguments
 USE_LOCAL_ONLY=false
+SMALL_RAM_MODE=false
+CUSTOM_RAM_VALUE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -14,16 +16,43 @@ while [[ $# -gt 0 ]]; do
             USE_LOCAL_ONLY=true
             shift
             ;;
+        --small_ram)
+            SMALL_RAM_MODE=true
+            shift
+            ;;
+        --ram)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                CUSTOM_RAM_VALUE="$2"
+                shift 2
+            else
+                echo "Error: --ram requires a value (e.g., --ram 1g)"
+                exit 1
+            fi
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --local    Use local Docker image only, skip remote version check"
-            echo "  -h, --help Show this help message"
+            echo "  --local            Use local Docker image only, skip remote version check"
+            echo "  --small_ram        Use conservative memory settings: min(2GB, 50% RAM)"
+            echo "  --ram SIZE         Use specific memory amount (e.g., --ram 1g, --ram 512m)"
+            echo "  -h, --help         Show this help message"
+            echo ""
+            echo "Memory allocation:"
+            echo "  Default: min(4GB, 50% RAM)"
+            echo "  --small_ram: min(2GB, 50% RAM)"
+            echo "  --ram SIZE: exact value specified"
+            echo ""
+            echo "Workspace management:"
+            echo "  Persistent: \$HOME/rl/mujoco (if writable)"
+            echo "  Temporary: /tmp/rl/mujoco (auto-backup on exit)"
             echo ""
             echo "Examples:"
-            echo "  $0           # Normal mode (check remote for updates)"
-            echo "  $0 --local  # Local mode (use local image only)"
+            echo "  $0                    # Normal mode: min(4GB, 50% RAM)"
+            echo "  $0 --local           # Local mode with normal memory"
+            echo "  $0 --small_ram       # Conservative: min(2GB, 50% RAM)"
+            echo "  $0 --ram 512m        # Use exactly 512MB shared memory"
+            echo "  $0 --ram 2g          # Use exactly 2GB shared memory"
             exit 0
             ;;
         *)
@@ -67,18 +96,128 @@ detect_gpu_support() {
     return 1
 }
 
+# Function to detect volume binding capability and determine workspace path
+detect_workspace_path() {
+    local home_path="$HOME/rl/mujoco"
+    local tmp_path="/tmp/rl/mujoco"
+    
+    # Create both directories first
+    mkdir -p "$home_path/workspace"/{examples,models,notebooks} 2>/dev/null || true
+    mkdir -p "$tmp_path/workspace"/{examples,models,notebooks}
+    
+    # Test actual Docker volume binding capability
+    echo "🧪 Testing Docker volume binding capability..."
+    
+    # Create a test file in home path
+    local test_file="$home_path/.docker_bind_test"
+    echo "test" > "$test_file" 2>/dev/null || {
+        echo "⚠️  Cannot write to $home_path, using temporary workspace: $tmp_path"
+        echo "$tmp_path"
+        return 1
+    }
+    
+    # Try to bind mount and check if Docker daemon can access it
+    if timeout 10 docker run --rm -v "$home_path:/.test_mount" alpine:latest cat /.test_mount/.docker_bind_test >/dev/null 2>&1; then
+        rm -f "$test_file"
+        echo "✅ Docker can bind to home directory: $home_path"
+        echo "$home_path"
+        return 0
+    else
+        rm -f "$test_file"
+        echo "⚠️  Docker daemon cannot bind to $home_path, using temporary workspace: $tmp_path"
+        echo "$tmp_path"
+        return 1
+    fi
+}
+
+# Detect workspace path and binding capability
+echo ""
+echo "📁 Detecting workspace configuration..."
+WORKSPACE_PATH=$(detect_workspace_path)
+WORKSPACE_IS_TEMP=$?
+
+if [ $WORKSPACE_IS_TEMP -eq 1 ]; then
+    USE_TEMP_WORKSPACE="true"
+    HOST_WORKSPACE_INFO="Temporary: /tmp/rl/mujoco (will be backed up on exit)"
+    
+    # Check if external backup script exists
+    if [ ! -f "./save_rl_env.sh" ]; then
+        echo "⚠️  Warning: save_rl_env.sh backup script not found in current directory"
+        echo "   Backup on exit will be skipped"
+    else
+        chmod +x ./save_rl_env.sh
+        echo "🔧 External backup script ready"
+    fi
+else
+    USE_TEMP_WORKSPACE="false"
+    HOST_WORKSPACE_INFO="Persistent: $WORKSPACE_PATH"
+fi
+
+# Create workspace structure
+echo "📁 Setting up workspace structure..."
+mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
+
+# Function to calculate memory settings
+calculate_memory_settings() {
+    # If --ram has a value, use it directly
+    if [ -n "$CUSTOM_RAM_VALUE" ]; then
+        echo "🧠 Custom RAM: ${CUSTOM_RAM_VALUE} (user specified)"
+        echo "$CUSTOM_RAM_VALUE"
+        return
+    fi
+    
+    # Get total RAM in GB (from /proc/meminfo)
+    local total_ram_kb=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+    local total_ram_gb=$((total_ram_kb / 1024 / 1024))
+    
+    local shm_size_gb
+    
+    if [ "$SMALL_RAM_MODE" = true ]; then
+        # Small RAM mode: max(2GB, 50% RAM)
+        local fifty_percent=$((total_ram_gb / 2))
+        if [ $fifty_percent -gt 2 ]; then
+            shm_size_gb=2
+        else
+            shm_size_gb=$fifty_percent
+        fi
+        echo "🧠 Small RAM mode: ${shm_size_gb}GB (min of 2GB or 50% of ${total_ram_gb}GB)"
+    else
+        # Normal mode: min(4GB, 50% RAM)
+        local fifty_percent=$((total_ram_gb / 2))
+        if [ $fifty_percent -gt 4 ]; then
+            shm_size_gb=4
+        else
+            shm_size_gb=$fifty_percent
+        fi
+        echo "🧠 Memory: ${shm_size_gb}GB (min of 4GB or 50% of ${total_ram_gb}GB RAM)"
+    fi
+    
+    echo "${shm_size_gb}g"
+}
+
 # Function to build Docker run command with smart OpenGL
 build_docker_command() {
-    local cmd="docker run --rm --name $CONTAINER_NAME"
+    local gpu_support=$1
+    local workspace_path=$2
+    
+    # Calculate memory settings
+    local shm_size=$(calculate_memory_settings)
+    
+    # Base command with memory settings
+    cmd="docker run -it --rm --name $CONTAINER_NAME --shm-size=${shm_size}"
     
     # Basic ports and volumes
     cmd="$cmd -p 6080:6080"        # noVNC desktop
     cmd="$cmd -p 8888:8888"        # Jupyter notebook
-    cmd="$cmd -v $HOME/rl/mujoco/workspace:/home/student/workspace"
+    cmd="$cmd -v ${workspace_path}/workspace:/home/student/workspace"
     
     # Pass host user UID and GID for proper file permissions
     cmd="$cmd -e HOST_UID=$(id -u)"
     cmd="$cmd -e HOST_GID=$(id -g)"
+    
+    # Pass workspace information to entrypoint
+    cmd="$cmd -e HOST_WORKSPACE_INFO='$HOST_WORKSPACE_INFO'"
+    cmd="$cmd -e USE_TEMP_WORKSPACE='$USE_TEMP_WORKSPACE'"
     
     # GPU support if available (check silently)
     if [ -d "/dev/dri" ] && [ "$(ls -A /dev/dri 2>/dev/null)" ] || (command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1); then
@@ -122,9 +261,25 @@ cleanup() {
 # Set trap for Ctrl-C
 trap cleanup SIGINT SIGTERM
 
+# Detect workspace path and binding capability
+echo ""
+echo "📁 Detecting workspace configuration..."
+WORKSPACE_PATH=$(detect_workspace_path)
+WORKSPACE_IS_TEMP=$?
+
+if [ $WORKSPACE_IS_TEMP -eq 1 ]; then
+    echo "🔧 Creating backup script for temporary workspace..."
+    create_backup_script
+    USE_TEMP_WORKSPACE="true"
+    HOST_WORKSPACE_INFO="Temporary: /tmp/rl/mujoco (will be backed up on exit)"
+else
+    USE_TEMP_WORKSPACE="false"
+    HOST_WORKSPACE_INFO="Persistent: $WORKSPACE_PATH"
+fi
+
 # Create workspace structure
-echo "📁 Setting up workspace..."
-mkdir -p $HOME/rl/mujoco/workspace/{notebooks,examples,models}
+echo "📁 Setting up workspace structure..."
+mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
 
 # Stop any existing container
 if docker ps -a | grep -q "$CONTAINER_NAME"; then
@@ -196,7 +351,9 @@ else
 fi
 
 # Build and display the command
-DOCKER_CMD=$(build_docker_command)
+DOCKER_CMD=$(build_docker_command true "$WORKSPACE_PATH")
+echo $DOCKER_CMD
+
 echo ""
 echo "🚀 Starting container in foreground mode..."
 echo "💡 Control tips:"
@@ -206,11 +363,29 @@ echo "   🌐 Access will be available at:"
 echo "      Desktop: http://localhost:6080"
 echo "      Jupyter: http://localhost:8888"
 echo "   📁 Workspace folder:"
-echo "      Local:     $HOME/rl/mujoco/workspace"
+echo "      Host: $HOST_WORKSPACE_INFO"
 echo "      Container: /home/student/workspace"
 echo ""
 echo "⏳ Starting services (this may take 30 seconds)..."
 echo "=============================================="
+
+# Function for cleanup on exit
+cleanup_on_exit() {
+    echo ""
+    echo "🛑 Stopping container..."
+    docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    
+    # If using temp workspace, create backup
+    if [ "$USE_TEMP_WORKSPACE" = "true" ] && [ -f "./save_rl_env.sh" ]; then
+        echo "💾 Creating backup of temporary workspace..."
+        ./save_rl_env.sh
+    fi
+    
+    echo "✅ Environment stopped"
+}
+
+# Set trap for cleanup
+trap cleanup_on_exit SIGINT SIGTERM EXIT
 
 # Run the container in foreground
 eval $DOCKER_CMD

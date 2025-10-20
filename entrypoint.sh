@@ -255,8 +255,11 @@ echo "  VNC Client: localhost:${VNC_PORT}"
 echo "  Security: No password (safe for local development)"
 echo ""
 echo "Workspace folder:"
-echo "  Local:     \$HOME/rl/mujoco/workspace"
+echo "  Host: ${HOST_WORKSPACE_INFO:-Local workspace}"
 echo "  Container: /home/student/workspace"
+if [ "$USE_TEMP_WORKSPACE" = "true" ]; then
+    echo "  ⚠️  Using temporary workspace - will be backed up on exit"
+fi
 echo "================================"
 
 # If arguments provided, execute them
