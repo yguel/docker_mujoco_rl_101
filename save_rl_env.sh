@@ -5,7 +5,7 @@ set -e
 
 TIMESTAMP=$(date '+%Y_%m_%d__%Hh%Mm%Ss')
 SOURCE_DIR="/tmp/rl/mujoco"
-TARGET_DIR="$HOME/rl/mujoco/snapshots"
+TARGET_DIR="$HOME/rl/docker_snapshots/mujoco_snapshots"
 
 echo "🔄 Creating backup of temporary workspace..."
 
@@ -15,7 +15,13 @@ if [ ! -d "$SOURCE_DIR" ]; then
 fi
 
 # Create target directory
-mkdir -p "$TARGET_DIR"
+SOURCE_DIR="/tmp/rl/mujoco"
+# Allow TARGET_DIR to be set as first argument, fallback to default
+if [ -n "$1" ]; then
+    TARGET_DIR="$1"
+else
+    TARGET_DIR="$HOME/rl/mujoco/snapshots"
+fi
 
 # Create backup (prefer zip, fallback to tar.gz)
 cd /tmp

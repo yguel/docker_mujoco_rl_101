@@ -41,6 +41,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     # Terminal
     mate-terminal \
+    gedit \
+    # NVIDIA tools for GPU support
+    nvidia-utils-525 \
     # VNC tools
     x11vnc xvfb \
     # Prevent dbus issues
@@ -49,6 +52,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     supervisor tini \
     # GUI tools for launcher
     zenity \
+    # Image viewer with SVG support
+    eog \
+    # PDF viewer
+    evince \
  && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
@@ -58,12 +65,20 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
     apt-get install -y code && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Chromium from non-snap source (avoid snap issues in Docker)
-RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /etc/apt/trusted.gpg.d/google.gpg && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/trusted.gpg.d/google.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
-    apt-get update && \
-    apt-get install -y google-chrome-stable && \
+# Install Chromium from Debian bookworm repository (avoid snap packages in Docker)
+RUN apt-get update && apt-get install -y wget gnupg ca-certificates
+
+# Add Debian repo (bookworm)
+RUN echo "deb [arch=amd64] http://deb.debian.org/debian bookworm main" >> /etc/apt/sources.list.d/debian.list && \
+    wget -qO - https://ftp-master.debian.org/keys/archive-key-12.asc | apt-key add -
+
+# Install Chromium from Debian
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends chromium && \
     rm -rf /var/lib/apt/lists/*
+
+# Optional: symlink for convenience
+RUN ln -s /usr/bin/chromium /usr/bin/chromium-browser
 
 # --- Python libs ---
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -105,8 +120,7 @@ RUN mkdir -p /home/${USER}/.vnc && \
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh
 COPY setup-opengl.sh /setup-opengl.sh
-COPY mujoco-desktop-launcher.sh /usr/local/bin/mujoco-launcher
-RUN chmod +x /entrypoint.sh /setup-opengl.sh /usr/local/bin/mujoco-launcher
+RUN chmod +x /entrypoint.sh /setup-opengl.sh
 
 # Set up desktop environment
 RUN mkdir -p /home/${USER}/.config && \
@@ -132,10 +146,9 @@ RUN chmod +x /usr/local/bin/quick-launcher.sh
 
 # Also copy desktop entries to user locations for desktop access
 RUN cp /usr/share/applications/vscode.desktop /home/${USER}/Desktop/ && \
-    cp /usr/share/applications/google-chrome.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/chromium.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/mate-terminal.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/caja.desktop /home/${USER}/Desktop/ && \
-    cp /usr/share/applications/mujoco-examples.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/quick-launcher.desktop /home/${USER}/Desktop/ && \
     chmod +x /home/${USER}/Desktop/*.desktop && \
     chown -R ${USER}:${USER} /home/${USER}/Desktop

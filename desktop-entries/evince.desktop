@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Document Viewer
+Comment=View multi-page documents
+GenericName=Document Viewer
+Exec=evince %U
+Icon=evince
+Type=Application
+StartupNotify=true
+Categories=Office;Viewer;
+MimeType=application/pdf;application/x-bzpdf;application/x-gzpdf;application/x-xzpdf;application/postscript;application/x-bzpostscript;application/x-gzpostscript;image/x-eps;image/x-bzeps;image/x-gzeps;application/illustrator;application/x-dvi;application/x-bzdvi;application/x-gzdvi;image/vnd.djvu;image/vnd.djvu+multipage;application/x-cbr;application/x-cbz;application/x-cb7;application/x-cbt;

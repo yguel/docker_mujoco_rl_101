@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=MuJoCo Quick Launcher
-Comment=Quick access to MuJoCo tools
-GenericName=Quick Launcher
+Name=Tools Launcher
+Comment=Quick access to RL software tools
+GenericName=Tools Launcher
 Exec=/usr/local/bin/quick-launcher.sh
-Icon=/usr/share/pixmaps/mujoco.svg
+Icon=/usr/share/pixmaps/quick_launcher.svg
 Type=Application
 StartupNotify=false
 Categories=System;Utility;

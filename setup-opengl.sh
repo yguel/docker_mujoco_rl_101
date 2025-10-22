@@ -25,6 +25,7 @@ setup_opengl() {
             export MESA_GL_VERSION_OVERRIDE="3.3"
             export MESA_GLSL_VERSION_OVERRIDE="330"
             export __GLX_VENDOR_LIBRARY_NAME=mesa
+
             return 0
         else
             echo "   - No GPU devices, using software rendering"

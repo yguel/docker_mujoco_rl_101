@@ -9,6 +9,8 @@ set -e
 USE_LOCAL_ONLY=false
 SMALL_RAM_MODE=false
 CUSTOM_RAM_VALUE=""
+VNC_RESOLUTION="1920x1080"
+VNC_QUALITY="high"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -29,6 +31,24 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --resolution)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                VNC_RESOLUTION="$2"
+                shift 2
+            else
+                echo "Error: --resolution requires a value (e.g., --resolution 1920x1080)"
+                exit 1
+            fi
+            ;;
+        --quality)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                VNC_QUALITY="$2"
+                shift 2
+            else
+                echo "Error: --quality requires a value (high, medium, low)"
+                exit 1
+            fi
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -36,6 +56,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --local            Use local Docker image only, skip remote version check"
             echo "  --small_ram        Use conservative memory settings: min(2GB, 50% RAM)"
             echo "  --ram SIZE         Use specific memory amount (e.g., --ram 1g, --ram 512m)"
+            echo "  --resolution WxH   Set VNC resolution (default: 1920x1080)"
+            echo "  --quality LEVEL    Set VNC quality: high, medium, low (default: high)"
             echo "  -h, --help         Show this help message"
             echo ""
             echo "Memory allocation:"
@@ -43,16 +65,22 @@ while [[ $# -gt 0 ]]; do
             echo "  --small_ram: min(2GB, 50% RAM)"
             echo "  --ram SIZE: exact value specified"
             echo ""
+            echo "VNC Display:"
+            echo "  Default: 1920x1080 @ 24-bit color depth, 96 DPI"
+            echo "  High quality: 24-bit color, standard DPI"
+            echo "  Medium quality: 16-bit color, standard DPI"
+            echo "  Low quality: 8-bit color, low DPI"
+            echo ""
             echo "Workspace management:"
             echo "  Persistent: \$HOME/rl/mujoco (if writable)"
             echo "  Temporary: /tmp/rl/mujoco (auto-backup on exit)"
             echo ""
             echo "Examples:"
-            echo "  $0                    # Normal mode: min(4GB, 50% RAM)"
-            echo "  $0 --local           # Local mode with normal memory"
-            echo "  $0 --small_ram       # Conservative: min(2GB, 50% RAM)"
-            echo "  $0 --ram 512m        # Use exactly 512MB shared memory"
-            echo "  $0 --ram 2g          # Use exactly 2GB shared memory"
+            echo "  $0                              # Normal mode: Full HD, high quality"
+            echo "  $0 --resolution 1440x900       # Custom resolution"
+            echo "  $0 --quality medium --small_ram # Medium quality, low memory"
+            echo "  $0 --resolution 2560x1440      # 1440p resolution"
+            echo "  $0 --ram 512m --quality low    # Low resource usage"
             exit 0
             ;;
         *)
@@ -96,6 +124,43 @@ detect_gpu_support() {
     return 1
 }
 
+# Function to install backup script from GitHub
+install_backup_script() {
+    local script_dir="$HOME/.local/bin/rl"
+    local script_path="$script_dir/save_rl_env.sh"
+    local github_url="https://raw.githubusercontent.com/yguel/docker_mujoco_rl_101/main/save_rl_env.sh"
+    # Human-readable logs go to stderr; function prints ONLY the installed path on stdout
+    >&2 echo "🔧 Installing backup script from GitHub..."
+
+    # Create directory
+    mkdir -p "$script_dir"
+
+    # Download latest version from GitHub
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsSL "$github_url" -o "$script_path" >/dev/null 2>&1; then
+            chmod +x "$script_path"
+            >&2 echo "✅ Backup script installed: $script_path"
+            printf '%s\n' "$script_path"
+            return 0
+        else
+            >&2 echo "❌ Failed to download backup script with curl"
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if wget -q "$github_url" -O "$script_path" >/dev/null 2>&1; then
+            chmod +x "$script_path"
+            >&2 echo "✅ Backup script installed: $script_path"
+            printf '%s\n' "$script_path"
+            return 0
+        else
+            >&2 echo "❌ Failed to download backup script with wget"
+        fi
+    else
+        >&2 echo "❌ Neither curl nor wget available for downloading backup script"
+    fi
+
+    return 1
+}
+
 # Function to detect volume binding capability and determine workspace path
 detect_workspace_path() {
     local home_path="$HOME/rl/mujoco"
@@ -106,51 +171,65 @@ detect_workspace_path() {
     mkdir -p "$tmp_path/workspace"/{examples,models,notebooks}
     
     # Test actual Docker volume binding capability
-    echo "🧪 Testing Docker volume binding capability..."
-    
+    >&2 echo "🧪 Testing Docker volume binding capability..."
+
     # Create a test file in home path
     local test_file="$home_path/.docker_bind_test"
-    echo "test" > "$test_file" 2>/dev/null || {
-        echo "⚠️  Cannot write to $home_path, using temporary workspace: $tmp_path"
-        echo "$tmp_path"
-        return 1
-    }
-    
+    if ! echo "test" > "$test_file" 2>/dev/null; then
+        >&2 echo "⚠️  Cannot write to $home_path, using temporary workspace: $tmp_path"
+        printf '%s|TEMP\n' "$tmp_path"
+        return 0
+    fi
+
     # Try to bind mount and check if Docker daemon can access it
     if timeout 10 docker run --rm -v "$home_path:/.test_mount" alpine:latest cat /.test_mount/.docker_bind_test >/dev/null 2>&1; then
-        rm -f "$test_file"
-        echo "✅ Docker can bind to home directory: $home_path"
-        echo "$home_path"
+        rm -f "$test_file" 2>/dev/null || true
+        >&2 echo "✅ Docker can bind to home directory: $home_path"
+        printf '%s|PERSIST\n' "$home_path"
         return 0
     else
-        rm -f "$test_file"
-        echo "⚠️  Docker daemon cannot bind to $home_path, using temporary workspace: $tmp_path"
-        echo "$tmp_path"
-        return 1
+        rm -f "$test_file" 2>/dev/null || true
+        >&2 echo "⚠️  Docker daemon cannot bind to $home_path, using temporary workspace: $tmp_path"
+        printf '%s|TEMP\n' "$tmp_path"
+        return 0
     fi
 }
 
 # Detect workspace path and binding capability
 echo ""
 echo "📁 Detecting workspace configuration..."
-WORKSPACE_PATH=$(detect_workspace_path)
-WORKSPACE_IS_TEMP=$?
+WORKSPACE_DETECT_RESULT=$(detect_workspace_path)
+WORKSPACE_PATH="${WORKSPACE_DETECT_RESULT%%|*}"
+WORKSPACE_MODE="${WORKSPACE_DETECT_RESULT##*|}"
 
-if [ $WORKSPACE_IS_TEMP -eq 1 ]; then
+# Define backup target directory
+BACKUP_TARGET_DIR="$HOME/rl/docker_snapshots/mujoco_snapshots"
+
+if [ "$WORKSPACE_MODE" = "TEMP" ]; then
     USE_TEMP_WORKSPACE="true"
     HOST_WORKSPACE_INFO="Temporary: /tmp/rl/mujoco (will be backed up on exit)"
-    
-    # Check if external backup script exists
-    if [ ! -f "./save_rl_env.sh" ]; then
-        echo "⚠️  Warning: save_rl_env.sh backup script not found in current directory"
-        echo "   Backup on exit will be skipped"
+    BACKUP_SCRIPT_PATH=$(install_backup_script)
+    if [ $? -eq 0 ]; then
+        echo "🔧 Backup script ready at: $BACKUP_SCRIPT_PATH"
+        # Check backup target directory exists and is writable
+        if [ ! -d "$BACKUP_TARGET_DIR" ]; then
+            echo "❌ Backup directory $BACKUP_TARGET_DIR does not exist. Please create it and ensure it is writable."
+            exit 1
+        fi
+        if ! touch "$BACKUP_TARGET_DIR/.backup_test" 2>/dev/null; then
+            echo "❌ Backup directory $BACKUP_TARGET_DIR is not writable. Please fix permissions."
+            exit 1
+        fi
+        rm -f "$BACKUP_TARGET_DIR/.backup_test"
     else
-        chmod +x ./save_rl_env.sh
-        echo "🔧 External backup script ready"
+        echo "⚠️  Warning: Could not install backup script from GitHub"
+        echo "   Backup on exit will be skipped"
+        BACKUP_SCRIPT_PATH=""
     fi
 else
     USE_TEMP_WORKSPACE="false"
     HOST_WORKSPACE_INFO="Persistent: $WORKSPACE_PATH"
+    BACKUP_SCRIPT_PATH=""
 fi
 
 # Create workspace structure
@@ -161,8 +240,8 @@ mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
 calculate_memory_settings() {
     # If --ram has a value, use it directly
     if [ -n "$CUSTOM_RAM_VALUE" ]; then
-        echo "🧠 Custom RAM: ${CUSTOM_RAM_VALUE} (user specified)"
-        echo "$CUSTOM_RAM_VALUE"
+        >&2 echo "🧠 Custom RAM: ${CUSTOM_RAM_VALUE} (user specified)"
+        printf '%s\n' "$CUSTOM_RAM_VALUE"
         return
     fi
     
@@ -180,7 +259,7 @@ calculate_memory_settings() {
         else
             shm_size_gb=$fifty_percent
         fi
-        echo "🧠 Small RAM mode: ${shm_size_gb}GB (min of 2GB or 50% of ${total_ram_gb}GB)"
+        >&2 echo "🧠 Small RAM mode: ${shm_size_gb}GB (min of 2GB or 50% of ${total_ram_gb}GB)"
     else
         # Normal mode: min(4GB, 50% RAM)
         local fifty_percent=$((total_ram_gb / 2))
@@ -189,10 +268,10 @@ calculate_memory_settings() {
         else
             shm_size_gb=$fifty_percent
         fi
-        echo "🧠 Memory: ${shm_size_gb}GB (min of 4GB or 50% of ${total_ram_gb}GB RAM)"
+        >&2 echo "🧠 Memory: ${shm_size_gb}GB (min of 4GB or 50% of ${total_ram_gb}GB RAM)"
     fi
     
-    echo "${shm_size_gb}g"
+    printf '%sg\n' "$shm_size_gb"
 }
 
 # Function to build Docker run command with smart OpenGL
@@ -216,8 +295,35 @@ build_docker_command() {
     cmd="$cmd -e HOST_GID=$(id -g)"
     
     # Pass workspace information to entrypoint
-    cmd="$cmd -e HOST_WORKSPACE_INFO='$HOST_WORKSPACE_INFO'"
-    cmd="$cmd -e USE_TEMP_WORKSPACE='$USE_TEMP_WORKSPACE'"
+    cmd="$cmd -e HOST_WORKSPACE_INFO=\"$HOST_WORKSPACE_INFO\""
+    cmd="$cmd -e USE_TEMP_WORKSPACE=\"$USE_TEMP_WORKSPACE\""
+    
+    # VNC settings for better resolution and quality
+    case $VNC_QUALITY in
+        high)
+            VNC_DEPTH=24
+            VNC_DPI=96
+            ;;
+        medium)
+            VNC_DEPTH=16
+            VNC_DPI=96
+            ;;
+        low)
+            VNC_DEPTH=8
+            VNC_DPI=72
+            ;;
+        *)
+            echo "⚠️  Unknown quality '$VNC_QUALITY', using high quality"
+            VNC_DEPTH=24
+            VNC_DPI=96
+            ;;
+    esac
+    
+    cmd="$cmd -e VNC_RESOLUTION=$VNC_RESOLUTION"   # User-specified or default resolution
+    cmd="$cmd -e VNC_DEPTH=$VNC_DEPTH"             # Quality-based color depth
+    cmd="$cmd -e VNC_DPI=$VNC_DPI"                 # Quality-based DPI
+    cmd="$cmd -e NOVNC_PORT=6080"                  # noVNC port
+    cmd="$cmd -e VNC_PORT=5901"                    # VNC direct port
     
     # GPU support if available (check silently)
     if [ -d "/dev/dri" ] && [ "$(ls -A /dev/dri 2>/dev/null)" ] || (command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1); then
@@ -261,23 +367,7 @@ cleanup() {
 # Set trap for Ctrl-C
 trap cleanup SIGINT SIGTERM
 
-# Detect workspace path and binding capability
-echo ""
-echo "📁 Detecting workspace configuration..."
-WORKSPACE_PATH=$(detect_workspace_path)
-WORKSPACE_IS_TEMP=$?
-
-if [ $WORKSPACE_IS_TEMP -eq 1 ]; then
-    echo "🔧 Creating backup script for temporary workspace..."
-    create_backup_script
-    USE_TEMP_WORKSPACE="true"
-    HOST_WORKSPACE_INFO="Temporary: /tmp/rl/mujoco (will be backed up on exit)"
-else
-    USE_TEMP_WORKSPACE="false"
-    HOST_WORKSPACE_INFO="Persistent: $WORKSPACE_PATH"
-fi
-
-# Create workspace structure
+# Create workspace structure (WORKSPACE_PATH already detected earlier)
 echo "📁 Setting up workspace structure..."
 mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
 
@@ -350,6 +440,17 @@ else
     echo "   → Will use software rendering (OSMesa)"
 fi
 
+# Show VNC configuration
+echo ""
+echo "🖥️  VNC Display Configuration:"
+echo "   Resolution: $VNC_RESOLUTION"
+echo "   Quality: $VNC_QUALITY"
+case $VNC_QUALITY in
+    high)   echo "   → 24-bit color, 96 DPI (best quality)" ;;
+    medium) echo "   → 16-bit color, 96 DPI (balanced)" ;;
+    low)    echo "   → 8-bit color, 72 DPI (performance)" ;;
+esac
+
 # Build and display the command
 DOCKER_CMD=$(build_docker_command true "$WORKSPACE_PATH")
 echo $DOCKER_CMD
@@ -376,9 +477,9 @@ cleanup_on_exit() {
     docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
     
     # If using temp workspace, create backup
-    if [ "$USE_TEMP_WORKSPACE" = "true" ] && [ -f "./save_rl_env.sh" ]; then
+    if [ "$USE_TEMP_WORKSPACE" = "true" ] && [ -n "$BACKUP_SCRIPT_PATH" ] && [ -f "$BACKUP_SCRIPT_PATH" ]; then
         echo "💾 Creating backup of temporary workspace..."
-        ./save_rl_env.sh
+        "$BACKUP_SCRIPT_PATH" "$BACKUP_TARGET_DIR"
     fi
     
     echo "✅ Environment stopped"

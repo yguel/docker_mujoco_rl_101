@@ -123,13 +123,30 @@ update-desktop-database /usr/share/applications/ 2>/dev/null || true
 update-desktop-database /home/student/.local/share/applications/ 2>/dev/null || true
 mkdir -p /home/student/.local/share/applications/
 ln -sf /usr/share/applications/vscode.desktop /home/student/.local/share/applications/ 2>/dev/null || true
-ln -sf /usr/share/applications/google-chrome.desktop /home/student/.local/share/applications/ 2>/dev/null || true
+ln -sf /usr/share/applications/chromium.desktop /home/student/.local/share/applications/ 2>/dev/null || true
 
 # Start desktop apps
 mate-panel --reset &
 caja &
 mate-terminal &
-google-chrome --no-sandbox --disable-gpu https://mujoco.readthedocs.io/ &
+
+# Start Chromium with Docker-compatible flags and open both required URLs
+chromium-browser \
+    --no-sandbox \
+    --disable-dev-shm-usage \
+    --disable-gpu \
+    --disable-software-rasterizer \
+    --disable-background-timer-throttling \
+    --disable-backgrounding-occluded-windows \
+    --disable-renderer-backgrounding \
+    --disable-features=TranslateUI \
+    --disable-ipc-flooding-protection \
+    --no-first-run \
+    --no-default-browser-check \
+    --password-store=basic \
+    --use-mock-keychain \
+    https://yguel.github.io/apprentissage_par_renforcement_et_simulation/ \
+    https://mujoco.readthedocs.io/ &
 
 # Keep the session alive
 while true; do
@@ -255,7 +272,13 @@ echo "  VNC Client: localhost:${VNC_PORT}"
 echo "  Security: No password (safe for local development)"
 echo ""
 echo "Workspace folder:"
-echo "  Host: ${HOST_WORKSPACE_INFO:-Local workspace}"
+if [ -n "$HOST_WORKSPACE_INFO" ]; then
+    # Remove any leading/trailing quotes
+    CLEANED_HOST_WORKSPACE_INFO=$(echo "$HOST_WORKSPACE_INFO" | sed -e 's/^"//' -e 's/"$//')
+    echo "  Host: $CLEANED_HOST_WORKSPACE_INFO"
+else
+    echo "  Host: Local workspace"
+fi
 echo "  Container: /home/student/workspace"
 if [ "$USE_TEMP_WORKSPACE" = "true" ]; then
     echo "  ⚠️  Using temporary workspace - will be backed up on exit"

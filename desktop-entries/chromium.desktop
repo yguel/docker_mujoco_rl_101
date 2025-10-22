@@ -2,8 +2,8 @@
 Name=Chromium Web Browser
 Comment=Access the Internet
 GenericName=Web Browser
-Exec=chromium-browser --no-sandbox --disable-dev-shm-usage --disable-gpu
-Icon=chromium-browser
+Exec=chromium --no-sandbox --disable-gpu
+Icon=/usr/share/pixmaps/chromium.svg
 Type=Application
 StartupNotify=false
 Categories=Network;WebBrowser;
