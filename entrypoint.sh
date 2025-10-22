@@ -94,6 +94,21 @@ unset DBUS_SESSION_BUS_ADDRESS
 # Start dbus session
 eval $(dbus-launch --sh-syntax)
 
+# Remove unwanted panel objects (BriskMenu, Firefox) if dconf is available
+if command -v dconf >/dev/null 2>&1; then
+    dconf reset -f /org/mate/panel/objects/briskmenu/
+    dconf reset -f /org/mate/panel/objects/firefox/
+
+    # If mate-panel.conf exists, load it into dconf
+    PANEL_CONF="$HOME/.config/mate-panel.conf"
+    if [ -f "$PANEL_CONF" ]; then
+        # Convert mate-panel.conf to dconf format and load (simple conversion: remove comments and blank lines)
+        grep -v '^#' "$PANEL_CONF" | grep -v '^$' > /tmp/mate-panel-dconf.txt
+        dconf load /org/mate/panel/ < /tmp/mate-panel-dconf.txt
+        echo "Loaded mate-panel.conf into dconf."
+    fi
+fi
+
 # Configure OpenGL for desktop environment
 export DISPLAY=:1
 export MUJOCO_GL=glfw
@@ -129,7 +144,6 @@ ln -sf /usr/share/applications/vscode.desktop /home/student/.local/share/applica
 ln -sf /usr/share/applications/chromium.desktop /home/student/.local/share/applications/ 2>/dev/null || true
 
 # Start desktop apps
-mate-panel --reset &
 caja &
 mate-terminal &
 

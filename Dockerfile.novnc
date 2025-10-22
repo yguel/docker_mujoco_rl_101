@@ -56,6 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     eog \
     # PDF viewer
     evince \
+    # dconf-cli for MATE panel configuration
+    dconf-cli \
  && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
@@ -125,6 +127,10 @@ RUN chmod +x /entrypoint.sh /setup-opengl.sh
 # Set up desktop environment
 RUN mkdir -p /home/${USER}/.config && \
     chown -R ${USER}:${USER} /home/${USER}/.config
+
+# Copy mate-panel.conf to the user's config directory (after .config is created)
+COPY mate-panel.conf /home/${USER}/.config/mate-panel.conf
+RUN chown ${USER}:${USER} /home/${USER}/.config/mate-panel.conf
 
 # Create desktop and applications directories  
 RUN mkdir -p /home/${USER}/Desktop && \

@@ -10,7 +10,7 @@ show_menu() {
         --column="Description" \
         --width=500 \
         --height=440 \
-        "Visual Studio Code" "Code editor" \
+        "Visual Studio Code" "Code editor opening MuJoCo workspace" \
         "Chromium" "Web browser for documentation" \
         "Gedit" "Text editor" \
         "Terminal" "Command line interface" \
@@ -19,7 +19,7 @@ show_menu() {
         "PDF Viewer" "View PDF documents")
 
     case "$choice" in
-        "Visual Studio Code, open MuJoCo workspace")
+        "Visual Studio Code")
             code --no-sandbox --disable-gpu --user-data-dir=/home/student/.vscode /home/student/workspace &
             ;;
         "Chromium")
