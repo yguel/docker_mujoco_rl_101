@@ -46,13 +46,10 @@ docker images | grep "$IMAGE_NAME" | head -2
 echo ""
 echo "📤 Pushing images to Docker Hub..."
 
-# Push version tag
+
+# Push version tag only
 echo "  🏷️  Pushing $IMAGE_NAME:$VERSION..."
 docker push $IMAGE_NAME:$VERSION
-
-# Push latest tag
-echo "  🏷️  Pushing $IMAGE_NAME:latest..."
-docker push $IMAGE_NAME:latest
 
 echo ""
 echo "✅ Successfully pushed to Docker Hub!"
@@ -62,10 +59,9 @@ echo "   https://hub.docker.com/r/${IMAGE_NAME#*/}"
 echo ""
 echo "👥 Others can now use your image with:"
 echo "   docker pull $IMAGE_NAME:$VERSION"
-echo "   docker pull $IMAGE_NAME:latest"
 echo ""
 echo "🚀 Quick start for users:"
-echo "   docker run -d -p 6080:6080 -p 8888:8888 --name mujoco-env $IMAGE_NAME:latest"
+echo "   docker run -d -p 6080:6080 -p 8888:8888 --name mujoco-env $IMAGE_NAME:$VERSION"
 echo ""
 echo "📝 Consider creating a README.md with usage instructions!"
 
