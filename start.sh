@@ -211,10 +211,14 @@ if [ "$WORKSPACE_MODE" = "TEMP" ]; then
     BACKUP_SCRIPT_PATH=$(install_backup_script)
     if [ $? -eq 0 ]; then
         echo "🔧 Backup script ready at: $BACKUP_SCRIPT_PATH"
-        # Check backup target directory exists and is writable
+        # Ensure backup target directory exists and is writable
         if [ ! -d "$BACKUP_TARGET_DIR" ]; then
-            echo "❌ Backup directory $BACKUP_TARGET_DIR does not exist. Please create it and ensure it is writable."
-            exit 1
+            echo "ℹ️  Backup directory $BACKUP_TARGET_DIR does not exist. Creating it..."
+            if ! mkdir -p "$BACKUP_TARGET_DIR"; then
+                echo "❌ Failed to create backup directory $BACKUP_TARGET_DIR."
+                exit 1
+            fi
+            chmod 700 "$BACKUP_TARGET_DIR" 2>/dev/null || true
         fi
         if ! touch "$BACKUP_TARGET_DIR/.backup_test" 2>/dev/null; then
             echo "❌ Backup directory $BACKUP_TARGET_DIR is not writable. Please fix permissions."
@@ -297,6 +301,7 @@ build_docker_command() {
     # Pass workspace information to entrypoint
     cmd="$cmd -e HOST_WORKSPACE_INFO=\"$HOST_WORKSPACE_INFO\""
     cmd="$cmd -e USE_TEMP_WORKSPACE=\"$USE_TEMP_WORKSPACE\""
+    cmd="$cmd -e BACKUP_TARGET_DIR=\"$BACKUP_TARGET_DIR\""
     
     # VNC settings for better resolution and quality
     case $VNC_QUALITY in
@@ -466,6 +471,9 @@ echo "      Jupyter: http://localhost:8888"
 echo "   📁 Workspace folder:"
 echo "      Host: $HOST_WORKSPACE_INFO"
 echo "      Container: /home/student/workspace"
+if [ "$USE_TEMP_WORKSPACE" = "true" ]; then
+    echo "      ⚠️  Using temporary workspace - will be backed up on exit to: $BACKUP_TARGET_DIR"
+fi
 echo ""
 echo "⏳ Starting services (this may take 30 seconds)..."
 echo "=============================================="

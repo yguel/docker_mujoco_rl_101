@@ -38,7 +38,10 @@ if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
     # Always switch to student user for running services (only if we're not already student)
     if [ "$(whoami)" = "root" ]; then
         echo "🔄 Switching to student user for service execution..."
-        exec runuser -l student -c "cd '$PWD' && HOST_UID=$HOST_UID HOST_GID=$HOST_GID VNC_RESOLUTION=$VNC_RESOLUTION VNC_DEPTH=$VNC_DEPTH VNC_DPI=$VNC_DPI NOVNC_PORT=$NOVNC_PORT VNC_PORT=$VNC_PORT bash '$0'"
+        export HOST_WORKSPACE_INFO
+        export USE_TEMP_WORKSPACE
+        export BACKUP_TARGET_DIR
+        exec runuser -l student -c "cd '$PWD' && HOST_UID=$HOST_UID HOST_GID=$HOST_GID VNC_RESOLUTION=$VNC_RESOLUTION VNC_DEPTH=$VNC_DEPTH VNC_DPI=$VNC_DPI NOVNC_PORT=$NOVNC_PORT VNC_PORT=$VNC_PORT HOST_WORKSPACE_INFO=\"$HOST_WORKSPACE_INFO\" USE_TEMP_WORKSPACE=\"$USE_TEMP_WORKSPACE\" BACKUP_TARGET_DIR=\"$BACKUP_TARGET_DIR\" bash '$0'"
     else
         echo "🔄 Already running as student user, continuing with service startup..."
     fi
@@ -272,16 +275,24 @@ echo "  VNC Client: localhost:${VNC_PORT}"
 echo "  Security: No password (safe for local development)"
 echo ""
 echo "Workspace folder:"
-if [ -n "$HOST_WORKSPACE_INFO" ]; then
-    # Remove any leading/trailing quotes
-    CLEANED_HOST_WORKSPACE_INFO=$(echo "$HOST_WORKSPACE_INFO" | sed -e 's/^"//' -e 's/"$//')
-    echo "  Host: $CLEANED_HOST_WORKSPACE_INFO"
+if [ -n "$HOST_WORKSPACE_INFO" ] && [ "$HOST_WORKSPACE_INFO" != "\"\"" ]; then
+    # Remove any leading/trailing quotes and whitespace
+    CLEANED_HOST_WORKSPACE_INFO=$(echo "$HOST_WORKSPACE_INFO" | sed -e 's/^"//' -e 's/"$//' | xargs)
+    if [ -z "$CLEANED_HOST_WORKSPACE_INFO" ]; then
+        echo "  Host: Local workspace (debug: HOST_WORKSPACE_INFO is empty after cleaning)"
+    else
+        echo "  Host: $CLEANED_HOST_WORKSPACE_INFO"
+    fi
 else
-    echo "  Host: Local workspace"
+    echo "  Host: Local workspace (debug: HOST_WORKSPACE_INFO not set or empty)"
 fi
 echo "  Container: /home/student/workspace"
 if [ "$USE_TEMP_WORKSPACE" = "true" ]; then
-    echo "  ⚠️  Using temporary workspace - will be backed up on exit"
+    if [ -n "$BACKUP_TARGET_DIR" ]; then
+        echo "  ⚠️  Using temporary workspace - will be backed up on exit to: $BACKUP_TARGET_DIR"
+    else
+        echo "  ⚠️  Using temporary workspace - will be backed up on exit (backup location unknown)"
+    fi
 fi
 echo "================================"
 
