@@ -136,16 +136,7 @@ install_backup_script() {
     mkdir -p "$script_dir"
 
     # Download latest version from GitHub
-    if command -v curl >/dev/null 2>&1; then
-        if curl -fsSL "$github_url" -o "$script_path" >/dev/null 2>&1; then
-            chmod +x "$script_path"
-            >&2 echo "✅ Backup script installed: $script_path"
-            printf '%s\n' "$script_path"
-            return 0
-        else
-            >&2 echo "❌ Failed to download backup script with curl"
-        fi
-    elif command -v wget >/dev/null 2>&1; then
+    if command -v wget >/dev/null 2>&1; then
         if wget -q "$github_url" -O "$script_path" >/dev/null 2>&1; then
             chmod +x "$script_path"
             >&2 echo "✅ Backup script installed: $script_path"
@@ -155,7 +146,7 @@ install_backup_script() {
             >&2 echo "❌ Failed to download backup script with wget"
         fi
     else
-        >&2 echo "❌ Neither curl nor wget available for downloading backup script"
+        >&2 echo "❌ wget is not available for downloading backup script"
     fi
 
     return 1
