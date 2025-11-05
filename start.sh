@@ -11,11 +11,16 @@ SMALL_RAM_MODE=false
 CUSTOM_RAM_VALUE=""
 VNC_RESOLUTION="1920x1080"
 VNC_QUALITY="high"
+NO_GPU_MODE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --local)
             USE_LOCAL_ONLY=true
+            shift
+            ;;
+        --no_gpu)
+            NO_GPU_MODE=true
             shift
             ;;
         --small_ram)
@@ -53,12 +58,13 @@ while [[ $# -gt 0 ]]; do
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
-            echo "  --local            Use local Docker image only, skip remote version check"
-            echo "  --small_ram        Use conservative memory settings: min(2GB, 50% RAM)"
-            echo "  --ram SIZE         Use specific memory amount (e.g., --ram 1g, --ram 512m)"
-            echo "  --resolution WxH   Set VNC resolution (default: 1920x1080)"
-            echo "  --quality LEVEL    Set VNC quality: high, medium, low (default: high)"
-            echo "  -h, --help         Show this help message"
+            echo "  --local           Use local Docker image only, skip remote version check"
+            echo "  --no-gpu          Force software rendering (disable GPU even if detected)"
+            echo "  --small_ram       Use conservative memory settings: min(2GB, 50% RAM)"
+            echo "  --ram SIZE        Use specific memory amount (e.g., --ram 1g, --ram 512m)"
+            echo "  --resolution WxH  Set VNC resolution (default: 1920x1080)"
+            echo "  --quality LEVEL   Set VNC quality: high, medium, low (default: high)"
+            echo "  -h, --help        Show this help message"
             echo ""
             echo "Memory allocation:"
             echo "  Default: min(4GB, 50% RAM)"
@@ -322,20 +328,19 @@ build_docker_command() {
     cmd="$cmd -e VNC_PORT=5901"                    # VNC direct port
     
     # GPU support if available (check silently)
-    if [ -d "/dev/dri" ] && [ "$(ls -A /dev/dri 2>/dev/null)" ] || (command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1); then
+    if [ "$NO_GPU_MODE" = true ]; then
+        # Force software rendering
+        cmd="$cmd -e DISPLAY=:1"
+        cmd="$cmd -e LIBGL_ALWAYS_SOFTWARE=1"
+        cmd="$cmd -e MUJOCO_GL=osmesa"
+    elif [ -d "/dev/dri" ] && [ "$(ls -A /dev/dri 2>/dev/null)" ] || (command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1); then
         # GPU detected - configure hardware acceleration
-        
-        # Add GPU devices
         if [ -d "/dev/dri" ]; then
             cmd="$cmd --device=/dev/dri"
         fi
-        
-        # NVIDIA runtime if available
-        if command -v nvidia-smi >/dev/null 2>&1; then
+        if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
             cmd="$cmd --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all"
         fi
-        
-        # Environment for hardware acceleration
         cmd="$cmd -e DISPLAY=:1"
         cmd="$cmd -e LIBGL_ALWAYS_SOFTWARE=0"
     else
