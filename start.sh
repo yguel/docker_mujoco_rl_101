@@ -379,16 +379,17 @@ build_docker_command() {
                             >&2 echo "🔧 Installing NVIDIA Container Toolkit..."
                             >&2 echo "   (This requires sudo privileges)"
                             
-                            if sudo bash -c '
-                                curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
-                                curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
-                                    sed '\''s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g'\'' | \
-                                    tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
-                                apt-get update && \
-                                apt-get install -y nvidia-container-toolkit && \
-                                nvidia-ctk runtime configure --runtime=docker && \
-                                systemctl restart docker
-                            ' 2>&1 | sed '\''s/^/      /'\''; then
+                            if sudo bash <<'INSTALL_EOF' 2>&1 | sed 's/^/      /'
+curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+apt-get update
+apt-get install -y nvidia-container-toolkit
+nvidia-ctk runtime configure --runtime=docker
+systemctl restart docker
+INSTALL_EOF
+                            then
                                 >&2 echo ""
                                 >&2 echo -e "${GREEN}✅ NVIDIA Container Toolkit installed successfully!${NC}"
                                 >&2 echo "   Checking if GPU support is now available..."
