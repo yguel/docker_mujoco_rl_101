@@ -346,14 +346,110 @@ build_docker_command() {
         fi
         # Check if Docker supports --gpus flag for NVIDIA GPU
         if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+            # Check if Docker daemon has NVIDIA runtime configured
+            # This checks daemon.json for nvidia-container-runtime or nvidia CDI
+            GPU_RUNTIME_CONFIGURED=false
+            if docker info 2>/dev/null | grep -q "nvidia"; then
+                GPU_RUNTIME_CONFIGURED=true
+            elif [ -f /etc/docker/daemon.json ] && grep -q "nvidia" /etc/docker/daemon.json 2>/dev/null; then
+                GPU_RUNTIME_CONFIGURED=true
+            fi
+            
             if docker run --help 2>/dev/null | grep -q -- '--gpus'; then
-                cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
-                >&2 echo -e "${GREEN}✅ Using Docker --gpus all for GPU acceleration${NC}"
+                if [ "$GPU_RUNTIME_CONFIGURED" = true ]; then
+                    cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
+                    >&2 echo -e "${GREEN}✅ Using Docker --gpus all for GPU acceleration${NC}"
+                    >&2 echo -e "${GREEN}   → PyTorch CUDA will be available for training${NC}"
+                else
+                    # NVIDIA Container Toolkit not installed - offer to install
+                    >&2 echo ""
+                    >&2 echo -e "${RED}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+                    >&2 echo -e "${RED}║  ⚠️  NVIDIA GPU detected but Docker GPU support not configured   ║${NC}"
+                    >&2 echo -e "${RED}║     CUDA/PyTorch GPU acceleration will NOT work                  ║${NC}"
+                    >&2 echo -e "${RED}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+                    >&2 echo ""
+                    >&2 echo -e "${YELLOW}Diagnosis:${NC}"
+                    >&2 echo "  - NVIDIA GPU: ✓ Detected"
+                    >&2 echo "  - NVIDIA driver: ✓ Working (nvidia-smi)"
+                    >&2 echo "  - Docker --gpus flag: ✓ Available"
+                    >&2 echo "  - NVIDIA Container Toolkit: ✗ Not installed/configured"
+                    >&2 echo ""
+                    >&2 echo -e "${RED}Impact: PyTorch/TensorFlow will run on CPU only (SLOW)${NC}"
+                    >&2 echo ""
+                    
+                    # Interactive installation prompt
+                    >&2 echo -e "${YELLOW}Would you like to install NVIDIA Container Toolkit now? (y/n)${NC}"
+                    read -r -p "Install toolkit? [y/N]: " response
+                    case "$response" in
+                        [yY][eE][sS]|[yY])
+                            >&2 echo ""
+                            >&2 echo "🔧 Installing NVIDIA Container Toolkit..."
+                            >&2 echo "   (This requires sudo privileges)"
+                            
+                            if sudo bash -c '
+                                curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg && \
+                                curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+                                    sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | \
+                                    tee /etc/apt/sources.list.d/nvidia-container-toolkit.list && \
+                                apt-get update && \
+                                apt-get install -y nvidia-container-toolkit && \
+                                nvidia-ctk runtime configure --runtime=docker && \
+                                systemctl restart docker
+                            ' 2>&1 | sed 's/^/      /'; then
+                                >&2 echo ""
+                                >&2 echo -e "${GREEN}✅ NVIDIA Container Toolkit installed successfully!${NC}"
+                                >&2 echo "   Checking if GPU support is now available..."
+                                sleep 2
+                                
+                                # Check again after installation
+                                if docker info 2>/dev/null | grep -q "nvidia"; then
+                                    cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
+                                    >&2 echo -e "${GREEN}✅ GPU acceleration enabled!${NC}"
+                                    >&2 echo -e "${GREEN}   → PyTorch CUDA will be available${NC}"
+                                else
+                                    >&2 echo -e "${RED}⚠️  Installation succeeded but Docker may need manual restart${NC}"
+                                    >&2 echo -e "${YELLOW}   Please try: sudo systemctl restart docker${NC}"
+                                    >&2 echo -e "${YELLOW}   Then run this script again${NC}"
+                                    >&2 echo ""
+                                    >&2 echo "   Continuing with CPU-only mode for now..."
+                                    >&2 echo -e "${RED}   → PyTorch will use CPU (slower training)${NC}"
+                                fi
+                            else
+                                >&2 echo ""
+                                >&2 echo -e "${RED}❌ Installation failed${NC}"
+                                >&2 echo "   Continuing with CPU-only mode..."
+                                >&2 echo -e "${RED}   → PyTorch will use CPU (slower training)${NC}"
+                            fi
+                            ;;
+                        *)
+                            >&2 echo ""
+                            >&2 echo "   Skipping installation, continuing with CPU-only mode..."
+                            >&2 echo -e "${RED}   → PyTorch will use CPU (slower training)${NC}"
+                            >&2 echo ""
+                            >&2 echo -e "${YELLOW}To install manually later, run:${NC}"
+                            >&2 echo ""
+                            >&2 echo "  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+                            >&2 echo "  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \\"
+                            >&2 echo "    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \\"
+                            >&2 echo "    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"
+                            >&2 echo "  sudo apt-get update"
+                            >&2 echo "  sudo apt-get install -y nvidia-container-toolkit"
+                            >&2 echo "  sudo nvidia-ctk runtime configure --runtime=docker"
+                            >&2 echo "  sudo systemctl restart docker"
+                            >&2 echo ""
+                            >&2 echo -e "${YELLOW}Or run without prompting:${NC}"
+                            >&2 echo "  $0 --no_gpu"
+                            ;;
+                    esac
+                    >&2 echo ""
+                fi
             else
                 >&2 echo ""
                 >&2 echo -e "${RED}╔═══════════════════════════════════════════════════════════════════╗${NC}"
-                >&2 echo -e "${RED}║  ⚠️  NVIDIA GPU detected but Docker NVIDIA runtime not configured ║${NC}"
+                >&2 echo -e "${RED}║  ⚠️  NVIDIA GPU detected but Docker --gpus flag not available    ║${NC}"
                 >&2 echo -e "${RED}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+                >&2 echo ""
+                >&2 echo -e "${YELLOW}Your Docker version may be too old or NVIDIA Container Toolkit not installed.${NC}"
                 >&2 echo ""
                 >&2 echo -e "${YELLOW}To install NVIDIA Container Toolkit, run:${NC}"
                 >&2 echo ""
@@ -480,9 +576,39 @@ fi
 # Show GPU detection results
 echo ""
 echo "🎮 Detecting graphics capabilities..."
-if detect_gpu_support; then
+HAS_NVIDIA=false
+HAS_NVIDIA_DRIVER=false
+HAS_DRI=false
+
+# Check for NVIDIA hardware (lspci)
+if lspci 2>/dev/null | grep -i nvidia >/dev/null 2>&1; then
+    HAS_NVIDIA=true
+fi
+
+# Check for NVIDIA driver (nvidia-smi)
+if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
+    HAS_NVIDIA_DRIVER=true
+    echo "   ✅ NVIDIA GPU detected with working driver (for CUDA computations)"
+elif [ "$HAS_NVIDIA" = true ]; then
+    echo -e "   ${RED}⚠️  NVIDIA GPU detected but driver not working${NC}"
+    echo -e "   ${YELLOW}   → Install NVIDIA drivers for GPU acceleration:${NC}"
+    echo "      sudo ubuntu-drivers autoinstall  # Ubuntu"
+    echo "      # or visit: https://www.nvidia.com/Download/index.aspx"
+fi
+
+if [ -d "/dev/dri" ] && [ "$(ls -A /dev/dri 2>/dev/null)" ]; then
+    HAS_DRI=true
+    echo "   ✅ GPU devices found in /dev/dri (for OpenGL rendering)"
+fi
+
+if [ "$HAS_NVIDIA_DRIVER" = true ] || [ "$HAS_DRI" = true ]; then
     echo "   → Will use hardware-accelerated OpenGL"
+    if [ "$HAS_NVIDIA_DRIVER" = false ]; then
+        echo -e "   ${YELLOW}ℹ️  Note: Using Intel/AMD GPU for OpenGL (no NVIDIA CUDA)${NC}"
+        echo -e "   ${RED}   → PyTorch/TensorFlow GPU acceleration NOT available${NC}"
+    fi
 else
+    echo "   ⚠️  No GPU detected"
     echo "   → Will use software rendering (OSMesa)"
 fi
 
