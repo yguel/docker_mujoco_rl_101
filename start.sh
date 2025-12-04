@@ -12,6 +12,7 @@ CUSTOM_RAM_VALUE=""
 VNC_RESOLUTION="1920x1080"
 VNC_QUALITY="high"
 NO_GPU_MODE=false
+DEBUG_MODE=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -54,6 +55,11 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             ;;
+        --debug)
+            DEBUG_MODE=true
+            set -x
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -64,6 +70,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --ram SIZE        Use specific memory amount (e.g., --ram 1g, --ram 512m)"
             echo "  --resolution WxH  Set VNC resolution (default: 1920x1080)"
             echo "  --quality LEVEL   Set VNC quality: high, medium, low (default: high)"
+            echo "  --debug           Enable debug mode with verbose output"
             echo "  -h, --help        Show this help message"
             echo ""
             echo "Memory allocation:"
@@ -379,7 +386,7 @@ build_docker_command() {
                             >&2 echo "🔧 Installing NVIDIA Container Toolkit..."
                             >&2 echo "   (This requires sudo privileges)"
                             
-                            if sudo bash <<'INSTALL_EOF' 2>&1 | sed 's/^/      /'
+                            if sudo bash <<'INSTALL_EOF' >&2
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
 curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
     sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
@@ -392,20 +399,63 @@ INSTALL_EOF
                             then
                                 >&2 echo ""
                                 >&2 echo -e "${GREEN}✅ NVIDIA Container Toolkit installed successfully!${NC}"
-                                >&2 echo "   Checking if GPU support is now available..."
-                                sleep 2
+                                >&2 echo "   Docker daemon restarted, verifying GPU support..."
+                                sleep 3
                                 
-                                # Check again after installation
-                                if docker info 2>/dev/null | grep -q "nvidia"; then
-                                    cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
-                                    >&2 echo -e "${GREEN}✅ GPU acceleration enabled!${NC}"
-                                    >&2 echo -e "${GREEN}   → PyTorch CUDA will be available${NC}"
-                                else
-                                    >&2 echo -e "${RED}⚠️  Installation succeeded but Docker may need manual restart${NC}"
-                                    >&2 echo -e "${YELLOW}   Please try: sudo systemctl restart docker${NC}"
-                                    >&2 echo -e "${YELLOW}   Then run this script again${NC}"
+                                # Debug: Show Docker daemon status
+                                if [ "$DEBUG_MODE" = true ]; then
                                     >&2 echo ""
-                                    >&2 echo "   Continuing with CPU-only mode for now..."
+                                    >&2 echo "=== DEBUG: Docker daemon status ==="
+                                    systemctl status docker --no-pager | head -20 2>&1 | sed 's/^/   /' >&2 || true
+                                    >&2 echo ""
+                                    >&2 echo "=== DEBUG: Docker info (GPU section) ==="
+                                    docker info 2>&1 | grep -A 10 -i runtime | sed 's/^/   /' >&2 || true
+                                    >&2 echo ""
+                                fi
+                                
+                                # Re-check if GPU support is now available after Docker restart
+                                >&2 echo "   Testing: docker run --rm --gpus all alpine:latest echo 'GPU test'"
+                                if [ "$DEBUG_MODE" = true ]; then
+                                    # In debug mode, show the full output
+                                    if docker run --rm --gpus all alpine:latest echo "GPU test" 2>&1 | sed 's/^/   /' >&2; then
+                                        GPU_TEST_PASSED=true
+                                    else
+                                        GPU_TEST_PASSED=false
+                                    fi
+                                else
+                                    # Normal mode, silent test
+                                    if docker run --rm --gpus all alpine:latest echo "GPU test" >/dev/null 2>&1; then
+                                        GPU_TEST_PASSED=true
+                                    else
+                                        GPU_TEST_PASSED=false
+                                    fi
+                                fi
+                                
+                                if [ "$GPU_TEST_PASSED" = true ]; then
+                                    cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
+                                    >&2 echo -e "${GREEN}✅ GPU acceleration is now enabled!${NC}"
+                                    >&2 echo -e "${GREEN}   → PyTorch CUDA will be available for training${NC}"
+                                else
+                                    >&2 echo -e "${RED}❌ GPU test still failing after installation${NC}"
+                                    if [ "$DEBUG_MODE" = true ]; then
+                                        >&2 echo ""
+                                        >&2 echo "=== DEBUG: Checking nvidia-smi ==="
+                                        nvidia-smi 2>&1 | sed 's/^/   /' >&2 || >&2 echo "   nvidia-smi failed"
+                                        >&2 echo ""
+                                        >&2 echo "=== DEBUG: Checking nvidia-ctk ==="
+                                        which nvidia-ctk 2>&1 | sed 's/^/   /' >&2 || >&2 echo "   nvidia-ctk not found"
+                                        nvidia-ctk --version 2>&1 | sed 's/^/   /' >&2 || true
+                                        >&2 echo ""
+                                        >&2 echo "=== DEBUG: Docker runtime config ==="
+                                        cat /etc/docker/daemon.json 2>&1 | sed 's/^/   /' >&2 || >&2 echo "   No daemon.json found"
+                                        >&2 echo ""
+                                    fi
+                                    >&2 echo -e "${YELLOW}   Possible causes:${NC}"
+                                    >&2 echo "   1. Docker daemon needs more time to restart (wait 30s and try again)"
+                                    >&2 echo "   2. User needs to log out and back in (for group permissions)"
+                                    >&2 echo "   3. System needs a reboot (kernel modules)"
+                                    >&2 echo ""
+                                    >&2 echo -e "${YELLOW}   Continuing with CPU-only mode for now...${NC}"
                                     >&2 echo -e "${RED}   → PyTorch will use CPU (slower training)${NC}"
                                 fi
                             else
@@ -518,24 +568,20 @@ if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^$IMAGE_NA
         echo "🏠 LOCAL MODE: Using local image without remote checks"
         echo "   (Remote version checking skipped)"
     else
-        # Get local image digest/ID
-        LOCAL_DIGEST=$(docker images --no-trunc --quiet "$IMAGE_NAME" 2>/dev/null)
-        
-        # Try to get remote image digest (without pulling)
+        # Try to get remote manifest digest (without pulling)
         echo "🔍 Comparing with remote image..."
-        if REMOTE_DIGEST=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['config']['digest'])" 2>/dev/null); then
-            # Get the actual local manifest digest - if RepoDigests is empty, use image ID
-            LOCAL_MANIFEST_DIGEST=$(docker image inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | cut -d'@' -f2)
-            if [ -z "$LOCAL_MANIFEST_DIGEST" ]; then
-                # No RepoDigests means locally built image, use the image ID instead
-                LOCAL_MANIFEST_DIGEST=$(docker image inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null)
-            fi
+        # Get remote image ID from manifest
+        if REMOTE_IMAGE_ID=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['config']['digest'])" 2>/dev/null); then
+            # Get local image ID
+            LOCAL_IMAGE_ID=$(docker image inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null)
             
-            if [ -n "$LOCAL_MANIFEST_DIGEST" ] && [ "$LOCAL_MANIFEST_DIGEST" = "$REMOTE_DIGEST" ]; then
+            if [ -n "$LOCAL_IMAGE_ID" ] && [ "$LOCAL_IMAGE_ID" = "$REMOTE_IMAGE_ID" ]; then
                 echo "✅ Local image is up-to-date with remote"
-                echo "   (Will NOT pull from Docker Hub)"
+                echo "   (Image ID: ${LOCAL_IMAGE_ID:0:19}...)"
             else
                 echo "📦 Local image differs from remote, pulling latest version..."
+                echo "   Local:  ${LOCAL_IMAGE_ID:0:19}..."
+                echo "   Remote: ${REMOTE_IMAGE_ID:0:19}..."
                 if docker pull "$IMAGE_NAME"; then
                     echo "✅ Successfully updated image from Docker Hub"
                 else
@@ -638,6 +684,15 @@ fi
 echo ""
 echo "⏳ Starting services (this may take 30 seconds)..."
 echo "=============================================="
+
+# Debug: Show the full Docker command
+if [ "$DEBUG_MODE" = true ]; then
+    echo ""
+    echo "=== DEBUG: Full Docker command ==="
+    echo "$DOCKER_CMD" | sed 's/ -/\n  -/g'
+    echo "=================================="
+    echo ""
+fi
 
 # Function for cleanup on exit
 cleanup_on_exit() {
