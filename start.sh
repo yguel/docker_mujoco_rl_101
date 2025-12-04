@@ -99,7 +99,7 @@ done
 
 # Configuration
 IMAGE_NAME="yguel/mujoco-desktop:v1.0"
-CONTAINER_NAME="mujoco-student"
+CONTAINER_NAME="mujoco-novnc"
 
 echo "🎓 Starting MuJoCo Student Environment"
 echo "====================================="
@@ -111,6 +111,12 @@ else
     echo "Mode: SMART UPDATE (checking remote)"
 fi
 echo ""
+
+# Color codes for terminal output
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
 
 # Function to detect GPU support
 detect_gpu_support() {
@@ -338,8 +344,42 @@ build_docker_command() {
         if [ -d "/dev/dri" ]; then
             cmd="$cmd --device=/dev/dri"
         fi
+        # Check if Docker supports --gpus flag for NVIDIA GPU
         if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-            cmd="$cmd --runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all"
+            if docker run --help 2>/dev/null | grep -q -- '--gpus'; then
+                cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
+                >&2 echo -e "${GREEN}✅ Using Docker --gpus all for GPU acceleration${NC}"
+            else
+                >&2 echo ""
+                >&2 echo -e "${RED}╔═══════════════════════════════════════════════════════════════════╗${NC}"
+                >&2 echo -e "${RED}║  ⚠️  NVIDIA GPU detected but Docker NVIDIA runtime not configured ║${NC}"
+                >&2 echo -e "${RED}╚═══════════════════════════════════════════════════════════════════╝${NC}"
+                >&2 echo ""
+                >&2 echo -e "${YELLOW}To install NVIDIA Container Toolkit, run:${NC}"
+                >&2 echo ""
+                >&2 echo "  # For Ubuntu/Debian:"
+                >&2 echo "  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+                >&2 echo "  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \\"
+                >&2 echo "    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \\"
+                >&2 echo "    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list"
+                >&2 echo "  sudo apt-get update"
+                >&2 echo "  sudo apt-get install -y nvidia-container-toolkit"
+                >&2 echo "  sudo nvidia-ctk runtime configure --runtime=docker"
+                >&2 echo "  sudo systemctl restart docker"
+                >&2 echo ""
+                >&2 echo -e "${YELLOW}To uninstall NVIDIA Container Toolkit (if needed):${NC}"
+                >&2 echo ""
+                >&2 echo "  sudo apt-get remove --purge -y nvidia-container-toolkit"
+                >&2 echo "  sudo apt-get autoremove -y"
+                >&2 echo "  sudo rm -f /etc/apt/sources.list.d/nvidia-container-toolkit.list"
+                >&2 echo "  sudo rm -f /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg"
+                >&2 echo "  sudo systemctl restart docker"
+                >&2 echo ""
+                >&2 echo -e "${YELLOW}Or run without GPU acceleration:${NC}"
+                >&2 echo "  $0 --no_gpu"
+                >&2 echo ""
+                >&2 echo "   Falling back to software rendering for now..."
+            fi
         fi
         cmd="$cmd -e DISPLAY=:1"
         cmd="$cmd -e LIBGL_ALWAYS_SOFTWARE=0"
@@ -372,10 +412,11 @@ trap cleanup SIGINT SIGTERM
 echo "📁 Setting up workspace structure..."
 mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
 
-# Stop any existing container
+# Stop and remove any existing container
 if docker ps -a | grep -q "$CONTAINER_NAME"; then
-    echo "🛑 Stopping existing container..."
+    echo "🛑 Stopping and removing existing container..."
     docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
 fi
 
 # Check for image availability and version comparison
@@ -392,11 +433,15 @@ if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^$IMAGE_NA
         
         # Try to get remote image digest (without pulling)
         echo "🔍 Comparing with remote image..."
-        if REMOTE_DIGEST=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | grep -o '"digest":"[^"]*"' | head -1 | cut -d'"' -f4); then
-            # Get the actual local manifest digest
+        if REMOTE_DIGEST=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['config']['digest'])" 2>/dev/null); then
+            # Get the actual local manifest digest - if RepoDigests is empty, use image ID
             LOCAL_MANIFEST_DIGEST=$(docker image inspect "$IMAGE_NAME" --format='{{index .RepoDigests 0}}' 2>/dev/null | cut -d'@' -f2)
+            if [ -z "$LOCAL_MANIFEST_DIGEST" ]; then
+                # No RepoDigests means locally built image, use the image ID instead
+                LOCAL_MANIFEST_DIGEST=$(docker image inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null)
+            fi
             
-            if [ "$LOCAL_MANIFEST_DIGEST" = "$REMOTE_DIGEST" ]; then
+            if [ -n "$LOCAL_MANIFEST_DIGEST" ] && [ "$LOCAL_MANIFEST_DIGEST" = "$REMOTE_DIGEST" ]; then
                 echo "✅ Local image is up-to-date with remote"
                 echo "   (Will NOT pull from Docker Hub)"
             else
@@ -454,7 +499,7 @@ esac
 
 # Build and display the command
 DOCKER_CMD=$(build_docker_command true "$WORKSPACE_PATH")
-echo $DOCKER_CMD
+echo "$DOCKER_CMD"
 
 echo ""
 echo "🚀 Starting container in foreground mode..."
