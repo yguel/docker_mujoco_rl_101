@@ -346,17 +346,10 @@ build_docker_command() {
         fi
         # Check if Docker supports --gpus flag for NVIDIA GPU
         if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi >/dev/null 2>&1; then
-            # Check if Docker daemon has NVIDIA runtime configured
-            # This checks daemon.json for nvidia-container-runtime or nvidia CDI
-            GPU_RUNTIME_CONFIGURED=false
-            if docker info 2>/dev/null | grep -q "nvidia"; then
-                GPU_RUNTIME_CONFIGURED=true
-            elif [ -f /etc/docker/daemon.json ] && grep -q "nvidia" /etc/docker/daemon.json 2>/dev/null; then
-                GPU_RUNTIME_CONFIGURED=true
-            fi
-            
             if docker run --help 2>/dev/null | grep -q -- '--gpus'; then
-                if [ "$GPU_RUNTIME_CONFIGURED" = true ]; then
+                # Test if --gpus actually works by trying a quick container run
+                >&2 echo "   🔍 Testing NVIDIA Container Toolkit..."
+                if docker run --rm --gpus all alpine:latest echo "GPU test" >/dev/null 2>&1; then
                     cmd="$cmd --gpus all -e NVIDIA_VISIBLE_DEVICES=all"
                     >&2 echo -e "${GREEN}✅ Using Docker --gpus all for GPU acceleration${NC}"
                     >&2 echo -e "${GREEN}   → PyTorch CUDA will be available for training${NC}"

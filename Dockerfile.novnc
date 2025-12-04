@@ -58,6 +58,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     evince \
     # dconf-cli for MATE panel configuration
     dconf-cli \
+    # notebook unit4 huggingface
+    python3-opengl xvfb \
  && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
@@ -82,8 +84,15 @@ RUN apt-get update && \
 # Optional: symlink for convenience
 RUN ln -s /usr/bin/chromium /usr/bin/chromium-browser
 
+# --- PyGame Learning Environment (PLE) dependencies ---
+RUN mkdir -p /opt/ple && \
+    cd /opt/ple && \
+    git clone https://github.com/ntasfi/PyGame-Learning-Environment.git && \
+    cd PyGame-Learning-Environment && \
+    python3 -m pip install --break-system-packages -e .
+
 # --- Python libs ---
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
       numpy==1.26.4 \
       matplotlib==3.8.4 \
       ipywidgets==8.1.3 \
@@ -96,7 +105,15 @@ RUN pip3 install --no-cache-dir --break-system-packages \
       pandas==2.2.2 \
       torch==2.3.1 \
       torchvision==0.18.1 \
-      torchaudio==2.3.1
+      torchaudio==2.3.1 \
+      mediapy==1.2.3 \
+      # Hugging Face notebook unit4
+      pyvirtualdisplay==3.0 \
+      pyglet==2.1.11 \
+      gymnasium==1.2 \
+      pygame==2.6
+
+RUN python3 -m pip install --break-system-packages --no-deps "gym-games@git+https://github.com/qlan3/gym-games.git"
 
 # Create user (remove ubuntu user if it exists to avoid UID conflicts)
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || true; fi && \
