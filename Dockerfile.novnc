@@ -117,7 +117,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       gymnasium==1.2 \
       pygame==2.6 \
       # python bindings for FCL (for motion planning)
-      python-fcl==1.26
+      python-fcl==0.7
 
 RUN python3 -m pip install --break-system-packages --no-deps "gym-games@git+https://github.com/qlan3/gym-games.git"
 
