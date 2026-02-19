@@ -107,6 +107,7 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       torchvision==0.18.1 \
       torchaudio==2.3.1 \
       mediapy==1.2.3 \
+      scipy==1.17.0 \
       # Hugging Face notebook unit4
       pyvirtualdisplay==3.0 \
       pyglet==2.1.11 \
@@ -114,6 +115,14 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       pygame==2.6
 
 RUN python3 -m pip install --break-system-packages --no-deps "gym-games@git+https://github.com/qlan3/gym-games.git"
+
+RUN python3 -m pip install --ignore-installed --break-system-packages typing_extensions==4.15.0 typeguard==4.4.4
+
+# Install OMPL with python bindings (for motion planning)
+ RUN cd /tmp && \
+     wget -O install-ompl-ubuntu.sh https://ompl.kavrakilab.org/install-ompl-ubuntu.sh && \
+     chmod +x install-ompl-ubuntu.sh && \
+     sudo ./install-ompl-ubuntu.sh --python
 
 # Create user (remove ubuntu user if it exists to avoid UID conflicts)
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || true; fi && \
