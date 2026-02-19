@@ -42,8 +42,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Terminal
     mate-terminal \
     gedit \
-    # NVIDIA tools for GPU support
-    nvidia-utils-525 \
+    # NVIDIA tools for GPU support (RTX 5090 compatible)
+    nvidia-utils-550 \
     # VNC tools
     x11vnc xvfb \
     # Prevent dbus issues
@@ -106,9 +106,9 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       notebook==7.0.6 \
       PyOpenGL==3.1.7 \
       pandas==2.2.2 \
-      torch==2.3.1 \
-      torchvision==0.18.1 \
-      torchaudio==2.3.1 \
+      torch>=2.5.0 \
+      torchvision>=0.20.0 \
+      torchaudio>=2.5.0 \
       mediapy==1.2.3 \
       scipy==1.17.0 \
       # Hugging Face notebook unit4

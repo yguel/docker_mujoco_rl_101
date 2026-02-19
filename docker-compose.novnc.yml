@@ -11,6 +11,9 @@ services:
     environment:
       - DISPLAY=:0
       - MUJOCO_GL=osmesa
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+    runtime: nvidia
     volumes:
       - ./workspace:/home/student/workspace
       - ./workspace/notebooks:/home/student/workspace/notebooks
