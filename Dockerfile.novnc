@@ -60,6 +60,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dconf-cli \
     # notebook unit4 huggingface
     python3-opengl xvfb \
+    # libfcl-dev for collision checking in motion planning
+    libfcl-dev \
+    # Clean up
  && rm -rf /var/lib/apt/lists/*
 
 # Install VS Code
@@ -112,7 +115,9 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       pyvirtualdisplay==3.0 \
       pyglet==2.1.11 \
       gymnasium==1.2 \
-      pygame==2.6
+      pygame==2.6 \
+      # python bindings for FCL (for motion planning)
+      python-fcl==1.26
 
 RUN python3 -m pip install --break-system-packages --no-deps "gym-games@git+https://github.com/qlan3/gym-games.git"
 
