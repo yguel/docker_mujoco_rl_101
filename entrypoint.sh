@@ -21,7 +21,8 @@ if [ -n "$HOST_UID" ] && [ -n "$HOST_GID" ]; then
         usermod -u $HOST_UID -g $HOST_GID student 2>/dev/null || true
         
         # Fix ownership of student's home directory after UID change
-        chown -R $HOST_UID:$HOST_GID /home/student 2>/dev/null || true
+        find /home/student -path /home/student/workspace -prune -o \
+             -exec chown -h "$HOST_UID:$HOST_GID" {} + 2>/dev/null || true
         
         # Set empty password for student user to allow su without password
         passwd -d student 2>/dev/null || true

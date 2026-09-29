@@ -179,6 +179,11 @@ detect_workspace_path() {
     # Create both directories first
     mkdir -p "$home_path/workspace"/{examples,models,notebooks} 2>/dev/null || true
     mkdir -p "$tmp_path/workspace"/{examples,models,notebooks}
+
+    # Let the Docker daemon (root, squashed to "other" on NFS homes) traverse the path
+    # down to the workspace. o+x = traverse only: others still cannot list the folders.
+    # rl/ and rl/mujoco
+    chmod o+x "$HOME" "$HOME/rl" "$home_path" 2> /dev/null || true
     
     # Test actual Docker volume binding capability
     >&2 echo "🧪 Testing Docker volume binding capability..."
@@ -191,8 +196,12 @@ detect_workspace_path() {
         return 0
     fi
 
-    # Try to bind mount and check if Docker daemon can access it
-    if timeout 10 docker run --rm -v "$home_path:/.test_mount" alpine:latest cat /.test_mount/.docker_bind_test >/dev/null 2>&1; then
+    # Try to bind mount AS THE HOST USER (root is squashed to 'nobody' on NFS homes)
+    local bind_err
+    if bind_err=$(timeout 10 docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$home_path:/.test_mount" \
+            alpine:latest cat /.test_mount/.docker_bind_test 2>&1); then
         rm -f "$test_file" 2>/dev/null || true
         >&2 echo "✅ Docker can bind to home directory: $home_path"
         printf '%s|PERSIST\n' "$home_path"
@@ -200,6 +209,7 @@ detect_workspace_path() {
     else
         rm -f "$test_file" 2>/dev/null || true
         >&2 echo "⚠️  Docker daemon cannot bind to $home_path, using temporary workspace: $tmp_path"
+        >&2 echo "   Reason: ${bind_err:-timeout or unknown error}"
         printf '%s|TEMP\n' "$tmp_path"
         return 0
     fi
@@ -286,6 +296,30 @@ calculate_memory_settings() {
     fi
     
     printf '%sg\n' "$shm_size_gb"
+}
+
+# Print the digest the registry currently associates with a tag.
+# Uses a HEAD request (not counted in Docker Hub pull rate limits).
+# Prints nothing and returns non-zero on failure.
+get_remote_digest() {
+    local image="$1"                         # e.g. yguel/mujoco-desktop:v1.0
+    local repo="${image%:*}" tag="${image##*:}"
+    [[ "$repo" == */* ]] || repo="library/$repo"
+    command -v curl >/dev/null 2>&1 || return 1
+
+    local token
+    token=$(curl -fsSL --max-time 10 \
+        "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" \
+        | python3 -c 'import sys, json; print(json.load(sys.stdin)["token"])') || return 1
+
+    curl -fsSI --max-time 10 \
+        -H "Authorization: Bearer $token" \
+        -H "Accept: application/vnd.oci.image.index.v1+json" \
+        -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+        -H "Accept: application/vnd.oci.image.manifest.v1+json" \
+        -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+        "https://registry-1.docker.io/v2/${repo}/manifests/${tag}" \
+        | tr -d '\r' | awk -F': ' 'tolower($1)=="docker-content-digest" {print $2}'
 }
 
 # Function to build Docker run command with smart OpenGL
@@ -548,10 +582,6 @@ cleanup() {
 # Set trap for Ctrl-C
 trap cleanup SIGINT SIGTERM
 
-# Create workspace structure (WORKSPACE_PATH already detected earlier)
-echo "📁 Setting up workspace structure..."
-mkdir -p "$WORKSPACE_PATH/workspace"/{notebooks,examples,models}
-
 # Stop and remove any existing container
 if docker ps -a | grep -q "$CONTAINER_NAME"; then
     echo "🛑 Stopping and removing existing container..."
@@ -568,29 +598,32 @@ if docker images --format "table {{.Repository}}:{{.Tag}}" | grep -q "^$IMAGE_NA
         echo "🏠 LOCAL MODE: Using local image without remote checks"
         echo "   (Remote version checking skipped)"
     else
-        # Try to get remote manifest digest (without pulling)
         echo "🔍 Comparing with remote image..."
-        # Get remote image ID from manifest
-        if REMOTE_IMAGE_ID=$(docker manifest inspect "$IMAGE_NAME" 2>/dev/null | python3 -c "import sys, json; print(json.load(sys.stdin)['config']['digest'])" 2>/dev/null); then
-            # Get local image ID
-            LOCAL_IMAGE_ID=$(docker image inspect "$IMAGE_NAME" --format='{{.Id}}' 2>/dev/null)
-            
-            if [ -n "$LOCAL_IMAGE_ID" ] && [ "$LOCAL_IMAGE_ID" = "$REMOTE_IMAGE_ID" ]; then
-                echo "✅ Local image is up-to-date with remote"
-                echo "   (Image ID: ${LOCAL_IMAGE_ID:0:19}...)"
-            else
-                echo "📦 Local image differs from remote, pulling latest version..."
-                echo "   Local:  ${LOCAL_IMAGE_ID:0:19}..."
-                echo "   Remote: ${REMOTE_IMAGE_ID:0:19}..."
-                if docker pull "$IMAGE_NAME"; then
-                    echo "✅ Successfully updated image from Docker Hub"
-                else
-                    echo "⚠️  Failed to pull updated image, using local version"
-                fi
-            fi
-        else
-            echo "⚠️  Could not check remote image (offline or registry unavailable)"
+        # Compare the tag's manifest digest on Docker Hub with the digest(s) recorded locally
+        REMOTE_DIGEST=$(get_remote_digest "$IMAGE_NAME" 2>/dev/null || true)
+        LOCAL_DIGESTS=$(docker image inspect "$IMAGE_NAME" \
+            --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null || true)
+
+        if [ -z "$REMOTE_DIGEST" ]; then
+            echo "⚠️  Could not check remote image (offline, registry unavailable or curl missing)"
             echo "   Using local image: $IMAGE_NAME"
+        elif printf '%s\n' "$LOCAL_DIGESTS" | grep -q -- "@${REMOTE_DIGEST}\$"; then
+            echo "✅ Local image is up-to-date with remote"
+            echo "   (Digest: ${REMOTE_DIGEST:0:19}...)"
+        else
+            echo "📦 A newer version of $IMAGE_NAME is available, pulling..."
+            echo "   Remote: ${REMOTE_DIGEST:0:19}..."
+            OLD_IMAGE_ID=$(docker image inspect "$IMAGE_NAME" --format '{{.Id}}' 2>/dev/null || true)
+            if docker pull "$IMAGE_NAME"; then
+                echo "✅ Successfully updated image from Docker Hub"
+                # Remove the previous version to save disk space (ignored if still in use)
+                NEW_IMAGE_ID=$(docker image inspect "$IMAGE_NAME" --format '{{.Id}}' 2>/dev/null || true)
+                if [ -n "$OLD_IMAGE_ID" ] && [ "$OLD_IMAGE_ID" != "$NEW_IMAGE_ID" ]; then
+                    docker rmi "$OLD_IMAGE_ID" >/dev/null 2>&1 || true
+                fi
+            else
+                echo "⚠️  Failed to pull updated image, using local version"
+            fi
         fi
     fi
 else
@@ -713,4 +746,5 @@ cleanup_on_exit() {
 trap cleanup_on_exit SIGINT SIGTERM EXIT
 
 # Run the container in foreground
+echo "🔖 Image digest: $(docker image inspect "$IMAGE_NAME" --format '{{index .RepoDigests 0}}' 2>/dev/null || echo 'local build')"
 eval $DOCKER_CMD
