@@ -336,7 +336,7 @@ build_docker_command() {
     # Basic ports and volumes
     cmd="$cmd -p 6080:6080"        # noVNC desktop
     cmd="$cmd -p 8888:8888"        # Jupyter notebook
-    cmd="$cmd -p 2718:2718"        # marimo (notebooks Rainbow)
+    cmd="$cmd -p 2718:2718"        # marimo (Rainbow notebooks)
     cmd="$cmd -v ${workspace_path}/workspace:/home/student/workspace"
     
     # Pass host user UID and GID for proper file permissions
@@ -709,7 +709,7 @@ echo "   📊 Container logs will appear below"
 echo "   🌐 Access will be available at:"
 echo "      Desktop: http://localhost:6080"
 echo "      Jupyter: http://localhost:8888"
-echo "      Notebooks Rainbow: http://localhost:2718"
+echo "      Rainbow notebooks: http://localhost:2718"
 echo "   📁 Workspace folder:"
 echo "      Host: $HOST_WORKSPACE_INFO"
 echo "      Container: /home/student/workspace"
@@ -729,61 +729,9 @@ if [ "$DEBUG_MODE" = true ]; then
     echo ""
 fi
 
-# ---------------------------------------------------------------------------
-# Rainbow notebooks: start the marimo server once the container is up.
-# Runs in the background because the container itself runs in the foreground.
-# ---------------------------------------------------------------------------
-launch_rainbow_notebooks() {
-    local i
-
-    # Wait for the desktop services to be up inside the container (~30 s).
-    for i in $(seq 1 120); do
-        if docker exec "$CONTAINER_NAME" curl -sf -o /dev/null \
-                http://localhost:6080/ >/dev/null 2>&1; then
-            break
-        fi
-        sleep 2
-    done
-
-    if ! docker exec "$CONTAINER_NAME" test -x /usr/local/bin/start-rainbow.sh \
-            >/dev/null 2>&1; then
-        echo ""
-        echo "⚠️  Rainbow notebooks are not available in this image."
-        echo "   Your local image predates the Rainbow tutorial. Press Ctrl-C,"
-        echo "   then run this script again: it will download the update."
-        return 1
-    fi
-
-    docker exec -u student -e DISPLAY= "$CONTAINER_NAME" \
-        bash -lc 'start-rainbow.sh' >/dev/null 2>&1 || true
-
-    for i in $(seq 1 30); do
-        if docker exec "$CONTAINER_NAME" curl -sf -o /dev/null \
-                http://localhost:2718/ >/dev/null 2>&1; then
-            echo ""
-            echo "🌈 Rainbow notebooks ready: http://localhost:2718"
-            echo "   (9 chapters, from DQN to Rainbow)"
-            return 0
-        fi
-        sleep 2
-    done
-
-    echo ""
-    echo "⚠️  The marimo server did not answer on port 2718."
-    echo "   Open a terminal on the desktop (http://localhost:6080) and run:"
-    echo "      start-rainbow.sh"
-    return 1
-}
-
-launch_rainbow_notebooks &
-RAINBOW_WATCHER_PID=$!
-
 # Function for cleanup on exit
 cleanup_on_exit() {
     echo ""
-    if [ -n "${RAINBOW_WATCHER_PID:-}" ]; then
-        kill "$RAINBOW_WATCHER_PID" >/dev/null 2>&1 || true
-    fi
     echo "🛑 Stopping container..."
     docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
     

@@ -117,7 +117,11 @@ RUN python3 -m pip install --no-cache-dir --break-system-packages \
       gymnasium==1.2 \
       pygame==2.6 \
       # python bindings for FCL (for motion planning)
-      python-fcl==0.7.0.10
+      python-fcl==0.7.0.10 \
+      # "Rainbow is all you need" tutorial: reactive marimo notebooks
+      # (chapters 01..09) and video export of the CartPole episodes
+      marimo==0.25.2 \
+      moviepy==2.1.2
 
 RUN python3 -m pip install --break-system-packages --no-deps "gym-games@git+https://github.com/qlan3/gym-games.git"
 
@@ -129,11 +133,33 @@ RUN python3 -m pip install --ignore-installed --break-system-packages typing_ext
      chmod +x install-ompl-ubuntu.sh && \
      sudo ./install-ompl-ubuntu.sh --python
 
+# --- "Rainbow is all you need" notebooks (DQN -> Rainbow, 9 chapters) ---
+# Kept outside /home/student/workspace because that path is a bind mount at
+# runtime; start-rainbow.sh copies them into the workspace on first launch.
+ARG RAINBOW_REF=master
+RUN git clone --depth 1 --branch ${RAINBOW_REF} \
+      https://github.com/Curt-Park/rainbow-is-all-you-need.git \
+      /opt/rainbow-is-all-you-need && \
+    rm -rf /opt/rainbow-is-all-you-need/.git && \
+    chmod -R a+rX /opt/rainbow-is-all-you-need
+
+COPY start-rainbow.sh /usr/local/bin/start-rainbow.sh
+RUN chmod +x /usr/local/bin/start-rainbow.sh
+
 # Create user (remove ubuntu user if it exists to avoid UID conflicts)
 RUN if id ubuntu >/dev/null 2>&1; then userdel -r ubuntu 2>/dev/null || true; fi && \
     useradd -m -s /bin/bash ${USER} && \
     echo "${USER} ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers && \
     usermod -aG sudo ${USER}
+
+# The workspace is a mount point at runtime; owning it by student makes the
+# image usable even without the bind mount (anonymous volume inherits this).
+RUN mkdir -p /home/student/workspace && chown student:student /home/student/workspace
+
+# marimo writes its session state under ~/.local/state; make sure the student
+# owns it even when the container runs without HOST_UID/HOST_GID.
+RUN mkdir -p /home/student/.local/state /home/student/.cache && \
+    chown -R student:student /home/student/.local /home/student/.cache
 
 # Set up VS Code user directory and install extensions
 RUN mkdir -p /home/${USER}/.vscode && \
@@ -187,13 +213,14 @@ RUN cp /usr/share/applications/vscode.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/mate-terminal.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/caja.desktop /home/${USER}/Desktop/ && \
     cp /usr/share/applications/quick-launcher.desktop /home/${USER}/Desktop/ && \
+    cp /usr/share/applications/rainbow-notebooks.desktop /home/${USER}/Desktop/ && \
     chmod +x /home/${USER}/Desktop/*.desktop && \
     chown -R ${USER}:${USER} /home/${USER}/Desktop
 
 WORKDIR ${HOME}
 
 # Expose ports
-EXPOSE 6080 5901
+EXPOSE 6080 5901 2718
 
 # Environment variables
 ENV DISPLAY=:1 \
@@ -201,6 +228,7 @@ ENV DISPLAY=:1 \
     VNC_DEPTH=24 \
     VNC_DPI=96 \
     NOVNC_PORT=6080 \
+    MARIMO_PORT=2718 \
     VNC_PORT=5901 \
     MUJOCO_GL=osmesa \
     PYOPENGL_PLATFORM=osmesa \

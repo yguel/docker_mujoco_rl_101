@@ -3,11 +3,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.novnc
-    image: yguel/mujoco-desktop:v1.0
+    image: yguel/mujoco-desktop:v1.1
     container_name: mujoco-novnc
     ports:
       - "6080:6080"     # noVNC dans le navigateur
       - "8888:8888"     # Jupyter Notebook
+      - "2718:2718"     # marimo (notebooks Rainbow)
     environment:
       - DISPLAY=:0
       - MUJOCO_GL=osmesa

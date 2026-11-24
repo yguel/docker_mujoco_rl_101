@@ -26,6 +26,10 @@ docker run -d \
 - **VS Code** for advanced coding
 - **Chromium Browser** for documentation
 - **noVNC** for web-based desktop access
+- **PyTorch 2.3 + Gymnasium 1.2** for reinforcement learning
+- **marimo** with the 9 chapters of
+  [Rainbow is all you need](https://github.com/Curt-Park/rainbow-is-all-you-need)
+  (DQN -> Rainbow), preinstalled in `/opt/rainbow-is-all-you-need`
 
 ## 🛠️ Usage Examples
 
@@ -73,6 +77,12 @@ services:
   - No password required
   - MuJoCo pre-configured
   - Scientific Python stack included
+
+- **Rainbow notebooks (marimo)**: http://localhost:2718
+  - Started on demand with `start-rainbow.sh` (or the desktop launcher
+    *Rainbow Notebooks* on the MATE desktop)
+  - The 9 chapters are copied into `~/workspace/rainbow-is-all-you-need/`
+    on first launch, so edits survive a container restart
 
 ## 📁 File Structure
 
@@ -131,11 +141,28 @@ cd docker/
 ./push-to-dockerhub.sh
 ```
 
+## 🌈 Run the DQN -> Rainbow tutorial
+
+```bash
+docker run -d -p 6080:6080 -p 8888:8888 -p 2718:2718 \
+  -v ./workspace:/home/student/workspace \
+  yguel/mujoco-desktop:v1.1
+
+# then, inside the container (desktop terminal, or docker exec):
+start-rainbow.sh            # starts the marimo server on port 2718
+start-rainbow.sh 01_dqn.py  # ... and opens chapter 1 directly
+```
+
+Each chapter trains an agent on `CartPole-v1` for 20 000 frames and renders a
+video of the trained policy. Reference timings on 4 CPU cores, no GPU:
+chapters 01, 02, 04-07 take 25-40 s each, chapter 03 (prioritized replay)
+about 1 min, chapter 08 (full Rainbow) about 2 min.
+
 ## 📋 System Requirements
 
 - Docker installed
 - 4GB+ RAM recommended
-- Ports 6080 and 8888 available
+- Ports 6080, 8888 and 2718 available
 
 ## 🆘 Troubleshooting
 

@@ -231,6 +231,34 @@ start_jupyter() {
     fi
 }
 
+# Function to start the marimo server (Rainbow notebooks)
+start_marimo() {
+    MARIMO_PORT="${MARIMO_PORT:-2718}"
+    echo "Starting marimo notebook server on port ${MARIMO_PORT}..."
+
+    # start-rainbow.sh copies the notebooks into the workspace on first run,
+    # starts the server and writes "$HOME/marimo.pid". DISPLAY is cleared so it
+    # does not try to open a browser here: the desktop is not up for the user yet.
+    DISPLAY= /usr/local/bin/start-rainbow.sh > "$HOME/marimo.boot.log" 2>&1
+
+    if [ -f "$HOME/marimo.pid" ]; then
+        MARIMO_PID=$(cat "$HOME/marimo.pid")
+        echo "marimo started with PID: $MARIMO_PID"
+
+        if kill -0 "$MARIMO_PID" 2>/dev/null; then
+            echo "✅ marimo process is alive"
+        else
+            echo "❌ marimo process died, checking logs..."
+            echo "--- marimo Error Log ---"
+            cat "$HOME/marimo.log" 2>/dev/null || echo "No log file found"
+            echo "--- End Log ---"
+        fi
+    else
+        echo "❌ Could not get marimo PID"
+        cat "$HOME/marimo.boot.log" 2>/dev/null || true
+    fi
+}
+
 # Function to cleanup on exit
 cleanup() {
     echo "Stopping services..."
@@ -244,8 +272,16 @@ cleanup() {
         rm -f /home/student/jupyter.pid
     fi
     
+    # Kill marimo using PID file if it exists
+    if [ -f /home/student/marimo.pid ]; then
+        MARIMO_PID=$(cat /home/student/marimo.pid)
+        kill $MARIMO_PID 2>/dev/null || true
+        rm -f /home/student/marimo.pid
+    fi
+
     pkill -f websockify 2>/dev/null || true
     pkill -f jupyter 2>/dev/null || true
+    pkill -f "marimo edit" 2>/dev/null || true
     exit 0
 }
 
@@ -258,6 +294,8 @@ sleep 3
 start_novnc
 sleep 2
 start_jupyter
+sleep 2
+start_marimo
 sleep 2
 
 # Verify services are running
@@ -280,12 +318,21 @@ else
     echo "❌ Jupyter notebook failed to start"
 fi
 
+if curl -sf -o /dev/null "http://localhost:${MARIMO_PORT:-2718}/" 2>/dev/null; then
+    echo "✅ marimo (Rainbow notebooks) is running"
+elif pgrep -f "marimo edit" > /dev/null; then
+    echo "⚠️  marimo process is up but does not answer on port ${MARIMO_PORT:-2718} yet"
+else
+    echo "❌ marimo (Rainbow notebooks) failed to start"
+fi
+
 echo "================================"
 echo "MuJoCo Desktop Environment Ready!"
 echo "================================"
 echo "Access via:"
 echo "  Desktop: http://localhost:${NOVNC_PORT}"
 echo "  Jupyter: http://localhost:8888"
+echo "  Rainbow notebooks (marimo): http://localhost:${MARIMO_PORT:-2718}"
 echo "  VNC Client: localhost:${VNC_PORT}"
 echo "  Security: No password (safe for local development)"
 echo ""
